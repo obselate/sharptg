@@ -18,10 +18,12 @@ Chat synchronization, QR rendering, media previews, message actions, and persist
 ## Run
 
 ```sh
-dotnet run --project Tgtui.gsproj
+./run.fish
 ```
 
-Create an application at `my.telegram.org`, then provide its credentials:
+The script prompts for the `api_id` and `api_hash` from `my.telegram.org`. It validates them and passes them only to the tgtui process.
+
+To provide credentials manually:
 
 ```sh
 export TELEGRAM_API_ID=123456
