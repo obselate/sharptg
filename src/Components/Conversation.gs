@@ -19,6 +19,10 @@ internal open class Conversation : Box {
     messages = items
   }
 
+  internal func Clear() {
+    messages = List[TelegramMessage]()
+  }
+
   protected override func Render(screen Screen, bounds CellRect, style Style) {
     screen.Fill(bounds, theme.Canvas)
     if bounds.WidthCells < 12 || bounds.HeightRows < 2 { return }

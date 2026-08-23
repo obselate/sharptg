@@ -23,6 +23,12 @@ internal open class ConversationHeader : Box {
     online = chat.Online
   }
 
+  internal func Clear() {
+    title = "No chats"
+    count = 0
+    online = false
+  }
+
   protected override func Render(screen Screen, bounds CellRect, style Style) {
     screen.Fill(bounds, theme.Header)
     if bounds.HeightRows == 0 { return }

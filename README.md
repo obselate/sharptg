@@ -10,15 +10,26 @@ This repository currently contains the first runnable vertical slice:
 - bottom-aligned incoming and outgoing message bubbles
 - Powerline bubble tails, reply context, timestamps, and receipts
 - keyboard and mouse chat selection
-- functional composer backed by an in-memory Telegram service
+- functional composer with an offline sample service
+- native TDLib JSON authorization through QR, phone, code, and cloud password states
 
-TDLib authentication, synchronization, media previews, message actions, and persistence remain to be ported.
+Chat synchronization, QR rendering, media previews, message actions, and persistence remain to be ported.
 
 ## Run
 
 ```sh
 dotnet run --project Tgtui.gsproj
 ```
+
+Create an application at `my.telegram.org`, then provide its credentials:
+
+```sh
+export TELEGRAM_API_ID=123456
+export TELEGRAM_API_HASH=your_api_hash
+dotnet run --project Tgtui.gsproj
+```
+
+The offline sample remains available with `--demo`.
 
 Use `Up` and `Down` to select chats, `Enter` to send, `Ctrl+B` to toggle the sidebar or switch panes, and `Ctrl+Q` to quit.
 

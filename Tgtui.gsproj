@@ -5,7 +5,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Tgtui</RootNamespace>
     <AssemblyName>tgtui</AssemblyName>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <PublishAot>true</PublishAot>
     <OptimizationPreference>Size</OptimizationPreference>
     <IlcFoldIdenticalMethodBodies>true</IlcFoldIdenticalMethodBodies>
@@ -16,6 +16,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="tdlib.native" Version="1.8.66" />
     <ProjectReference Include="$(SharpTuiProject)" />
   </ItemGroup>
 

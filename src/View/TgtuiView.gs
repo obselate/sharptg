@@ -6,7 +6,7 @@ import SharpTui
 internal open class TgtuiView : Column {
   private let NarrowBreakpoint int32 = 70
   private var app App
-  private var service DemoTelegramService
+  private var service TelegramService
   private var theme TgtuiTheme
   private var status StatusBar
   private var footer StatusBar
@@ -23,7 +23,7 @@ internal open class TgtuiView : Column {
   private var dialogsVisible bool
   private var sidebarExpanded bool
 
-  public init(app App, service DemoTelegramService, theme TgtuiTheme) {
+  public init(app App, service TelegramService, theme TgtuiTheme) {
     this.app = app
     this.service = service
     this.theme = theme
@@ -149,9 +149,15 @@ internal open class TgtuiView : Column {
     if revision == service.Revision { return }
     revision = service.Revision
     dialogs.Update(service.Chats, service.SelectedIndex)
-    header.Update(service.SelectedChat)
-    conversation.Update(service.SelectedChat.Messages)
-    status.RightText = service.SelectedChat.Title
+    if let selected = service.SelectedChat {
+      header.Update(selected)
+      conversation.Update(selected.Messages)
+      status.RightText = selected.Title
+      return
+    }
+    header.Clear()
+    conversation.Clear()
+    status.RightText = "No chats"
   }
 
   private func applyResponsive(width int32) {
@@ -170,7 +176,7 @@ internal open class TgtuiView : Column {
       chat.IsVisible = !dialogsVisible
       footer.LeftText = dialogsVisible ? "↑/↓ move" : "Esc chats"
       footer.CenterText = "Ctrl+B pane"
-      status.RightText = CellText.Clip(service.SelectedChat.Title, 14)
+      status.RightText = CellText.Clip(selectedTitle(), 14)
     } else {
       sidebar.Width = CellLength.Cells(34)
       sidebar.GrowWeight = 0
@@ -179,7 +185,12 @@ internal open class TgtuiView : Column {
       chat.IsVisible = true
       footer.LeftText = "↑/↓ move   Enter send"
       footer.CenterText = "Ctrl+B sidebar"
-      status.RightText = service.SelectedChat.Title
+      status.RightText = selectedTitle()
     }
+  }
+
+  private func selectedTitle() string {
+    if let selected = service.SelectedChat { return selected.Title }
+    return "No chats"
   }
 }
