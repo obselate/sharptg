@@ -96,23 +96,25 @@ internal class TelegramService {
   }
 
   internal func SubmitPhone(phone string) {
-    if phone.Trim() == "" { return }
+    let clean = phone.Trim()
+    if clean == "" { return }
     auth.Hint = "Checking phone number"
-    send("{\"@type\":\"setAuthenticationPhoneNumber\",\"phone_number\":" + JsonSerializer.Serialize(phone.Trim()) + "}")
+    sendAuthentication("setAuthenticationPhoneNumber", "phone_number", clean)
     changed()
   }
 
   internal func SubmitCode(code string) {
-    if code.Trim() == "" { return }
+    let clean = code.Trim()
+    if clean == "" { return }
     auth.Hint = "Checking verification code"
-    send("{\"@type\":\"checkAuthenticationCode\",\"code\":" + JsonSerializer.Serialize(code.Trim()) + "}")
+    sendAuthentication("checkAuthenticationCode", "code", clean)
     changed()
   }
 
   internal func SubmitPassword(password string) {
     if password == "" { return }
     auth.Hint = "Checking cloud password"
-    send("{\"@type\":\"checkAuthenticationPassword\",\"password\":" + JsonSerializer.Serialize(password) + "}")
+    sendAuthentication("checkAuthenticationPassword", "password", password)
     changed()
   }
 
@@ -222,6 +224,13 @@ internal class TelegramService {
     request["device_model"] = "Terminal"
     request["system_version"] = Environment.OSVersion.VersionString
     request["application_version"] = "0.2.0"
+    send(request.ToJsonString())
+  }
+
+  private func sendAuthentication(kind string, name string, value string) {
+    let request = JsonObject()
+    request["@type"] = kind
+    request[name] = value
     send(request.ToJsonString())
   }
 
