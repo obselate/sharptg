@@ -13,7 +13,7 @@ This repository currently contains the first runnable vertical slice:
 - functional composer with an offline sample service
 - native TDLib JSON authorization through QR, phone, code, and cloud password states
 
-Chat synchronization, QR rendering, media previews, message actions, and persistence remain to be ported.
+Chat synchronization, media previews, message actions, and persistence remain to be ported.
 
 ## Run
 
@@ -32,6 +32,8 @@ dotnet run --project Tgtui.gsproj
 ```
 
 The offline sample remains available with `--demo`.
+
+Phone login is the default. Choose `QR login` before submitting a phone number to scan with Telegram. Press `Ctrl+Y` on the QR screen to copy its login link through the terminal clipboard protocol.
 
 Use `Up` and `Down` to select chats, `Enter` to send, `Ctrl+B` to toggle the sidebar or switch panes, and `Ctrl+Q` to quit.
 

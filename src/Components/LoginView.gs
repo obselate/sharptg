@@ -4,16 +4,15 @@ import SharpTui
 
 internal open class LoginView : Column {
   private var service TelegramService
-  private var theme TgtuiTheme
   private var title Label
   private var steps Label
   private var hint Label
-  private var link Label
+  private var qr QrCodeView
   private var phone TextInput
   private var code TextInput
   private var password TextInput
-  private var phoneButton Button
   private var qrButton Button
+  private var copyButton Button
   private var continueButton Button
   private var verifyButton Button
   private var unlockButton Button
@@ -21,18 +20,20 @@ internal open class LoginView : Column {
   private var qrActions Row
   private var codeActions Row
   private var passwordActions Row
+  private var centered Row
+  private var topSpace Box
+  private var bottomSpace Box
   private var footer StatusBar
   private var phase AuthPhase
 
   public init(service TelegramService, theme TgtuiTheme) {
     this.service = service
-    this.theme = theme
     phase = AuthPhase.Closed
 
     title = Label{ Alignment: HorizontalAlignment.Center, Style: theme.Header }
     steps = Label{ Alignment: HorizontalAlignment.Center, Style: theme.Muted }
     hint = Label{ Alignment: HorizontalAlignment.Center, Style: theme.Muted }
-    link = Label{ Alignment: HorizontalAlignment.Center, Style: theme.Accent }
+    qr = QrCodeView(theme)
     phone = TextInput{
       Height: CellLength.Cells(3),
       ShowBorder: true,
@@ -58,15 +59,15 @@ internal open class LoginView : Column {
       Style: theme.Composer,
       FocusedStyle: theme.Accent,
     }
-    phoneButton = Button{
-      Text: "Use phone",
-      Style: theme.FooterKey,
-      OnPress: () -> service.UsePhoneLogin(),
-    }
     qrButton = Button{
       Text: "QR login",
       Style: theme.FooterText,
       OnPress: () -> service.UseQrLogin(),
+    }
+    copyButton = Button{
+      Text: "Copy login link",
+      Style: theme.FooterKey,
+      OnPress: () -> service.CopyQrLink(),
     }
     continueButton = Button{
       Text: "Continue",
@@ -83,14 +84,13 @@ internal open class LoginView : Column {
       Style: theme.FooterKey,
       OnPress: () -> { submitPassword() },
     }
-    qrActions = Row{ GapCells: 2, Children: { phoneButton } }
     phoneActions = Row{ GapCells: 2, Children: { qrButton, continueButton } }
+    qrActions = Row{ Children: { copyButton } }
     codeActions = Row{ GapCells: 2, Children: { verifyButton } }
     passwordActions = Row{ GapCells: 2, Children: { unlockButton } }
 
     let card = Column{
       Width: CellLength.Cells(52),
-      Height: CellLength.Cells(15),
       ShowBorder: true,
       Title: "Telegram",
       GapCells: 1,
@@ -100,23 +100,25 @@ internal open class LoginView : Column {
         title,
         steps,
         hint,
-        link,
+        qr,
         phone,
         code,
         password,
-        qrActions,
         phoneActions,
+        qrActions,
         codeActions,
         passwordActions,
       },
     }
-    let centered = Row{
+    centered = Row{
       Height: CellLength.Cells(15),
       Children: { Box{ GrowWeight: 1 }, card, Box{ GrowWeight: 1 } },
     }
+    topSpace = Box{ GrowWeight: 1 }
+    bottomSpace = Box{ GrowWeight: 1 }
     let body = Column{
       GrowWeight: 1,
-      Children: { Box{ GrowWeight: 1 }, centered, Box{ GrowWeight: 1 } },
+      Children: { topSpace, centered, bottomSpace },
     }
     let header = StatusBar{
       Height: CellLength.Cells(1),
@@ -145,10 +147,11 @@ internal open class LoginView : Column {
 
   protected override func Accept(ev UiEvent) EventResult {
     if ev.Phase == KeyPhase.Release { return EventResult.Continue }
-    if ev.Key == Key.Escape && (phase == AuthPhase.Phone || phase == AuthPhase.Error) {
-      service.UseQrLogin()
-      return EventResult.Handled
-    }
+    if phase == AuthPhase.Qr && ev.Key == Key.Character && ev.Text == "y"
+      && (int32(ev.Modifiers) & int32(KeyModifiers.Ctrl)) != 0 {
+        service.CopyQrLink()
+        return EventResult.Handled
+      }
     if ev.Key != Key.Enter { return EventResult.Continue }
     if phone.IsFocused { return submitPhone() }
     if code.IsFocused { return submitCode() }
@@ -161,27 +164,39 @@ internal open class LoginView : Column {
     title.Text = titleFor(next)
     steps.Text = stepsFor(next)
     hint.Text = CellText.Clip(service.Auth.Hint, 46)
-    link.Text = CellText.Clip(service.Auth.Link, 46)
+    qr.Text = service.Auth.Link
 
-    let phoneVisible = next == AuthPhase.Phone || next == AuthPhase.Error
+    let phoneVisible = next == AuthPhase.Phone
+    let qrVisible = next == AuthPhase.Qr && service.Auth.Link != ""
     phone.IsVisible = phoneVisible
     code.IsVisible = next == AuthPhase.Code
     password.IsVisible = next == AuthPhase.Password
-    qrActions.IsVisible = next == AuthPhase.Qr
+    qr.IsVisible = qrVisible
     phoneActions.IsVisible = phoneVisible
+    qrActions.IsVisible = qrVisible
     codeActions.IsVisible = next == AuthPhase.Code
     passwordActions.IsVisible = next == AuthPhase.Password
-    link.IsVisible = next == AuthPhase.Qr && service.Auth.Link != ""
+    steps.IsVisible = next != AuthPhase.Qr
+    hint.IsVisible = !qrVisible
+    title.IsVisible = !qrVisible
+    topSpace.IsVisible = next != AuthPhase.Qr
+    bottomSpace.IsVisible = next != AuthPhase.Qr
+    centered.Height = next == AuthPhase.Qr ? CellLength.Auto : CellLength.Cells(15)
+    centered.GrowWeight = next == AuthPhase.Qr ? 1 : 0
     footer.LeftText = next == AuthPhase.Setup ? "" : "Tab next"
     footer.CenterText = next == AuthPhase.Setup ? "" : "Enter continue"
-    footer.RightText = next == AuthPhase.Phone || next == AuthPhase.Error ? "Esc QR" : "Esc quit"
+    footer.RightText = "Esc quit"
+    if next == AuthPhase.Qr {
+      footer.LeftText = service.Auth.Link == "" ? "" : "Ctrl+Y copy"
+      footer.CenterText = service.Auth.Hint
+    }
 
     if next == phase { return }
     phase = next
     if phoneVisible { Focus(phone) }
     if next == AuthPhase.Code { Focus(code) }
     if next == AuthPhase.Password { Focus(password) }
-    if next == AuthPhase.Qr { Focus(phoneButton) }
+    if next == AuthPhase.Qr && service.Auth.Link != "" { Focus(copyButton) }
   }
 
   private func submitPhone() EventResult {
@@ -204,19 +219,19 @@ internal open class LoginView : Column {
 
   private func titleFor(value AuthPhase) string {
     if value == AuthPhase.Setup { return "Telegram API credentials" }
-    if value == AuthPhase.Qr { return "Link this device" }
-    if value == AuthPhase.Phone || value == AuthPhase.Error { return "Phone number" }
+    if value == AuthPhase.Qr { return "Scan with Telegram" }
+    if value == AuthPhase.Phone { return "Phone number" }
     if value == AuthPhase.Code { return "Verification code" }
     if value == AuthPhase.Password { return "Two-step verification" }
     if value == AuthPhase.Closed { return "Session closed" }
+    if value == AuthPhase.Error { return "Telegram error" }
     return "Starting Telegram"
   }
 
   private func stepsFor(value AuthPhase) string {
-    if value == AuthPhase.Phone || value == AuthPhase.Error { return "PHONE" }
+    if value == AuthPhase.Phone { return "PHONE" }
     if value == AuthPhase.Code { return "PHONE  /  CODE" }
     if value == AuthPhase.Password { return "PHONE  /  CODE  /  2FA" }
-    if value == AuthPhase.Qr { return "QR" }
     return ""
   }
 }

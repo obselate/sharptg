@@ -21,6 +21,9 @@ internal class TgtuiChecks {
       failures = failures + expect(selected.Preview == "compiler-grounded hello", "send refreshes preview")
       service.Send("   ")
       failures = failures + expect(selected.Messages.Count == before + 1, "blank send ignored")
+      let qr = QrCodeView(TgtuiTheme())
+      qr.Text = "tg://login?token=tgtui-selfcheck"
+      failures = failures + expect(qr.ModuleSize > 0, "QR encoding")
       if failures == 0 {
         Console.WriteLine("selfcheck: pass")
         return 0

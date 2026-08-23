@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Text.Json
 import System.Text.Json.Nodes
+import System.Text
 import System.Threading
 import SharpTui
 
@@ -17,7 +18,6 @@ internal class TelegramService {
   private var clientId int32
   private var apiId int32
   private var apiHash string
-  private var phoneMode bool
   private var stopping bool
   private var receiver Thread?
 
@@ -42,7 +42,6 @@ internal class TelegramService {
     clientId = 0
     apiId = 0
     apiHash = ""
-    phoneMode = false
     stopping = false
     receiver = nil
 
@@ -78,16 +77,15 @@ internal class TelegramService {
     changed()
   }
 
-  internal func UsePhoneLogin() {
-    phoneMode = true
+  private func usePhoneLogin() {
     auth.Phase = AuthPhase.Phone
-    auth.Hint = "Enter your phone number in international format"
+    auth.Hint = "Enter your phone number with country code"
     auth.Link = ""
     changed()
   }
 
   internal func UseQrLogin() {
-    phoneMode = false
+    if auth.Phase != AuthPhase.Phone { return }
     auth.Phase = AuthPhase.Qr
     auth.Hint = "Generating login link"
     auth.Link = ""
@@ -96,6 +94,7 @@ internal class TelegramService {
   }
 
   internal func SubmitPhone(phone string) {
+    if auth.Phase != AuthPhase.Phone { return }
     let clean = phone.Trim()
     if clean == "" { return }
     auth.Hint = "Checking phone number"
@@ -104,6 +103,7 @@ internal class TelegramService {
   }
 
   internal func SubmitCode(code string) {
+    if auth.Phase != AuthPhase.Code { return }
     let clean = code.Trim()
     if clean == "" { return }
     auth.Hint = "Checking verification code"
@@ -112,9 +112,19 @@ internal class TelegramService {
   }
 
   internal func SubmitPassword(password string) {
+    if auth.Phase != AuthPhase.Password { return }
     if password == "" { return }
     auth.Hint = "Checking cloud password"
     sendAuthentication("checkAuthenticationPassword", "password", password)
+    changed()
+  }
+
+  internal func CopyQrLink() {
+    if auth.Phase != AuthPhase.Qr || auth.Link == "" { return }
+    let encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(auth.Link))
+    Console.Out.Write("\u001b]52;c;" + encoded + "\u0007")
+    Console.Out.Flush()
+    auth.Hint = "Login link copied"
     changed()
   }
 
@@ -180,11 +190,11 @@ internal class TelegramService {
     } else if kind == "authorizationStateWaitEncryptionKey" {
       send("{\"@type\":\"checkDatabaseEncryptionKey\",\"encryption_key\":\"\"}")
     } else if kind == "authorizationStateWaitPhoneNumber" {
-      if phoneMode { UsePhoneLogin() } else { UseQrLogin() }
+      usePhoneLogin()
     } else if kind == "authorizationStateWaitOtherDeviceConfirmation" {
       auth.Phase = AuthPhase.Qr
       auth.Link = jsonString(state, "link")
-      auth.Hint = "Telegram → Settings → Devices → Link Desktop Device"
+      auth.Hint = "Settings > Devices > Link Desktop"
       changed()
     } else if kind == "authorizationStateWaitCode" {
       auth.Phase = AuthPhase.Code
@@ -206,7 +216,11 @@ internal class TelegramService {
   }
 
   private func sendParameters() {
-    let data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "tgtui")
+    var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+    if root == "" {
+      root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share")
+    }
+    let data = Path.Combine(root, "tgtui")
     Directory.CreateDirectory(data)
     let request = JsonObject()
     request["@type"] = "setTdlibParameters"
@@ -223,7 +237,7 @@ internal class TelegramService {
     request["system_language_code"] = "en"
     request["device_model"] = "Terminal"
     request["system_version"] = Environment.OSVersion.VersionString
-    request["application_version"] = "0.2.0"
+    request["application_version"] = "0.3.0"
     send(request.ToJsonString())
   }
 
@@ -239,7 +253,8 @@ internal class TelegramService {
   }
 
   private func fail(message string) {
-    auth.Phase = AuthPhase.Error
+    if auth.Phase == AuthPhase.Qr && auth.Link == "" { auth.Phase = AuthPhase.Phone }
+    if auth.Phase == AuthPhase.Starting { auth.Phase = AuthPhase.Error }
     auth.Hint = message == "" ? "Telegram sign-in failed" : message
     changed()
   }
