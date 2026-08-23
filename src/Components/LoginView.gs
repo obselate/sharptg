@@ -12,6 +12,7 @@ internal open class LoginView : Column {
   private var code TextInput
   private var password TextInput
   private var qrButton Button
+  private var phoneButton Button
   private var copyButton Button
   private var continueButton Button
   private var verifyButton Button
@@ -64,6 +65,11 @@ internal open class LoginView : Column {
       Style: theme.FooterText,
       OnPress: () -> service.UseQrLogin(),
     }
+    phoneButton = Button{
+      Text: "Use phone",
+      Style: theme.FooterKey,
+      OnPress: () -> service.UsePhoneLogin(),
+    }
     copyButton = Button{
       Text: "Copy login link",
       Style: theme.FooterKey,
@@ -85,7 +91,7 @@ internal open class LoginView : Column {
       OnPress: () -> { submitPassword() },
     }
     phoneActions = Row{ GapCells: 2, Children: { qrButton, continueButton } }
-    qrActions = Row{ Children: { copyButton } }
+    qrActions = Row{ GapCells: 2, Children: { phoneButton, copyButton } }
     codeActions = Row{ GapCells: 2, Children: { verifyButton } }
     passwordActions = Row{ GapCells: 2, Children: { unlockButton } }
 
@@ -196,7 +202,7 @@ internal open class LoginView : Column {
     if phoneVisible { Focus(phone) }
     if next == AuthPhase.Code { Focus(code) }
     if next == AuthPhase.Password { Focus(password) }
-    if next == AuthPhase.Qr && service.Auth.Link != "" { Focus(copyButton) }
+    if next == AuthPhase.Qr && service.Auth.Link != "" { Focus(phoneButton) }
   }
 
   private func submitPhone() EventResult {

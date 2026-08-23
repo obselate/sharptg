@@ -18,6 +18,8 @@ internal class TelegramService {
   private var clientId int32
   private var apiId int32
   private var apiHash string
+  private var qrRequested bool
+  private var resettingPhone bool
   private var stopping bool
   private var receiver Thread?
 
@@ -42,6 +44,8 @@ internal class TelegramService {
     clientId = 0
     apiId = 0
     apiHash = ""
+    qrRequested = false
+    resettingPhone = false
     stopping = false
     receiver = nil
 
@@ -78,6 +82,7 @@ internal class TelegramService {
   }
 
   private func usePhoneLogin() {
+    qrRequested = false
     auth.Phase = AuthPhase.Phone
     auth.Hint = "Enter your phone number with country code"
     auth.Link = ""
@@ -86,11 +91,17 @@ internal class TelegramService {
 
   internal func UseQrLogin() {
     if auth.Phase != AuthPhase.Phone { return }
+    qrRequested = true
     auth.Phase = AuthPhase.Qr
     auth.Hint = "Generating login link"
     auth.Link = ""
     send("{\"@type\":\"requestQrCodeAuthentication\"}")
     changed()
+  }
+
+  internal func UsePhoneLogin() {
+    if auth.Phase != AuthPhase.Qr || resettingPhone { return }
+    resetPhoneLogin()
   }
 
   internal func SubmitPhone(phone string) {
@@ -192,6 +203,10 @@ internal class TelegramService {
     } else if kind == "authorizationStateWaitPhoneNumber" {
       usePhoneLogin()
     } else if kind == "authorizationStateWaitOtherDeviceConfirmation" {
+      if !qrRequested {
+        resetPhoneLogin()
+        return
+      }
       auth.Phase = AuthPhase.Qr
       auth.Link = jsonString(state, "link")
       auth.Hint = "Settings > Devices > Link Desktop"
@@ -209,6 +224,15 @@ internal class TelegramService {
       auth.Hint = "Connected"
       changed()
     } else if kind == "authorizationStateClosed" {
+      if resettingPhone && !stopping {
+        resettingPhone = false
+        auth.Phase = AuthPhase.Starting
+        auth.Hint = "Starting phone login"
+        clientId = tdCreateClientId()
+        send("{\"@type\":\"getOption\",\"name\":\"version\"}")
+        changed()
+        return
+      }
       auth.Phase = AuthPhase.Closed
       auth.Hint = "Telegram session closed"
       changed()
@@ -237,7 +261,7 @@ internal class TelegramService {
     request["system_language_code"] = "en"
     request["device_model"] = "Terminal"
     request["system_version"] = Environment.OSVersion.VersionString
-    request["application_version"] = "0.3.0"
+    request["application_version"] = "0.3.1"
     send(request.ToJsonString())
   }
 
@@ -248,12 +272,25 @@ internal class TelegramService {
     send(request.ToJsonString())
   }
 
+  private func resetPhoneLogin() {
+    resettingPhone = true
+    qrRequested = false
+    auth.Phase = AuthPhase.Starting
+    auth.Hint = "Returning to phone login"
+    auth.Link = ""
+    send("{\"@type\":\"destroy\"}")
+    changed()
+  }
+
   private func send(request string) {
     if clientId != 0 { tdSend(clientId, request) }
   }
 
   private func fail(message string) {
-    if auth.Phase == AuthPhase.Qr && auth.Link == "" { auth.Phase = AuthPhase.Phone }
+    if auth.Phase == AuthPhase.Qr && auth.Link == "" {
+      auth.Phase = AuthPhase.Phone
+      qrRequested = false
+    }
     if auth.Phase == AuthPhase.Starting { auth.Phase = AuthPhase.Error }
     auth.Hint = message == "" ? "Telegram sign-in failed" : message
     changed()
