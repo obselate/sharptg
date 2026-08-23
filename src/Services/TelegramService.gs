@@ -130,6 +130,28 @@ internal class TelegramService {
     changed()
   }
 
+  internal func SubmitCredentials(idText string, hashText string) {
+    if auth.Phase != AuthPhase.Setup { return }
+    guard let credentials = TelegramCredentialStore.Parse(idText, hashText) else {
+      auth.Hint = "Use a numeric API ID and 32-character API hash"
+      changed()
+      return
+    }
+    try {
+      TelegramCredentialStore.Save(credentials)
+    } catch (failure Exception) {
+      auth.Hint = "Could not save credentials: " + failure.Message
+      changed()
+      return
+    }
+    apiId = credentials.ApiId
+    apiHash = credentials.ApiHash
+    auth.Phase = AuthPhase.Starting
+    auth.Hint = "Starting Telegram"
+    changed()
+    startReceiver()
+  }
+
   internal func CopyQrLink() {
     if auth.Phase != AuthPhase.Qr || auth.Link == "" { return }
     let encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(auth.Link))
@@ -148,14 +170,18 @@ internal class TelegramService {
   }
 
   private func start() {
-    let idText = Environment.GetEnvironmentVariable("TELEGRAM_API_ID") ?? ""
-    apiHash = Environment.GetEnvironmentVariable("TELEGRAM_API_HASH") ?? ""
-    if !Int32.TryParse(idText, out apiId) || apiId <= 0 || apiHash.Trim() == "" {
+    guard let credentials = TelegramCredentialStore.Load() else {
       auth.Phase = AuthPhase.Setup
-      auth.Hint = "Set TELEGRAM_API_ID and TELEGRAM_API_HASH"
+      auth.Hint = "Enter the app credentials from my.telegram.org"
       changed()
       return
     }
+    apiId = credentials.ApiId
+    apiHash = credentials.ApiHash
+    startReceiver()
+  }
+
+  private func startReceiver() {
     let worker = Thread(() -> receiveLoop())
     worker.IsBackground = true
     worker.Name = "tdlib"
@@ -240,7 +266,10 @@ internal class TelegramService {
   }
 
   private func sendParameters() {
-    var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+    var root = Environment.GetEnvironmentVariable("XDG_DATA_HOME") ?? ""
+    if root.Trim() == "" {
+      root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+    }
     if root == "" {
       root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share")
     }
@@ -261,7 +290,7 @@ internal class TelegramService {
     request["system_language_code"] = "en"
     request["device_model"] = "Terminal"
     request["system_version"] = Environment.OSVersion.VersionString
-    request["application_version"] = "0.3.1"
+    request["application_version"] = "0.4.0"
     send(request.ToJsonString())
   }
 

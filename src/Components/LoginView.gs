@@ -8,16 +8,20 @@ internal open class LoginView : Column {
   private var steps Label
   private var hint Label
   private var qr QrCodeView
+  private var apiId TextInput
+  private var apiHash TextInput
   private var phone TextInput
   private var code TextInput
   private var password TextInput
   private var qrButton Button
+  private var saveCredentialsButton Button
   private var phoneButton Button
   private var copyButton Button
   private var continueButton Button
   private var verifyButton Button
   private var unlockButton Button
   private var phoneActions Row
+  private var setupActions Row
   private var qrActions Row
   private var codeActions Row
   private var passwordActions Row
@@ -35,6 +39,23 @@ internal open class LoginView : Column {
     steps = Label{ Alignment: HorizontalAlignment.Center, Style: theme.Muted }
     hint = Label{ Alignment: HorizontalAlignment.Center, Style: theme.Muted }
     qr = QrCodeView(theme)
+    apiId = TextInput{
+      Height: CellLength.Cells(3),
+      ShowBorder: true,
+      Title: "API ID",
+      Placeholder: "From my.telegram.org",
+      Style: theme.Composer,
+      FocusedStyle: theme.Accent,
+    }
+    apiHash = TextInput{
+      Height: CellLength.Cells(3),
+      ShowBorder: true,
+      Title: "API hash",
+      Placeholder: "32 hexadecimal characters",
+      IsPassword: true,
+      Style: theme.Composer,
+      FocusedStyle: theme.Accent,
+    }
     phone = TextInput{
       Height: CellLength.Cells(3),
       ShowBorder: true,
@@ -65,6 +86,11 @@ internal open class LoginView : Column {
       Style: theme.FooterText,
       OnPress: () -> service.UseQrLogin(),
     }
+    saveCredentialsButton = Button{
+      Text: "Save and continue",
+      Style: theme.FooterKey,
+      OnPress: () -> { submitCredentials() },
+    }
     phoneButton = Button{
       Text: "Use phone",
       Style: theme.FooterKey,
@@ -91,6 +117,7 @@ internal open class LoginView : Column {
       OnPress: () -> { submitPassword() },
     }
     phoneActions = Row{ GapCells: 2, Children: { qrButton, continueButton } }
+    setupActions = Row{ GapCells: 2, Children: { saveCredentialsButton } }
     qrActions = Row{ GapCells: 2, Children: { phoneButton, copyButton } }
     codeActions = Row{ GapCells: 2, Children: { verifyButton } }
     passwordActions = Row{ GapCells: 2, Children: { unlockButton } }
@@ -107,9 +134,12 @@ internal open class LoginView : Column {
         steps,
         hint,
         qr,
+        apiId,
+        apiHash,
         phone,
         code,
         password,
+        setupActions,
         phoneActions,
         qrActions,
         codeActions,
@@ -159,6 +189,11 @@ internal open class LoginView : Column {
         return EventResult.Handled
       }
     if ev.Key != Key.Enter { return EventResult.Continue }
+    if apiId.IsFocused {
+      Focus(apiHash)
+      return EventResult.Handled
+    }
+    if apiHash.IsFocused { return submitCredentials() }
     if phone.IsFocused { return submitPhone() }
     if code.IsFocused { return submitCode() }
     if password.IsFocused { return submitPassword() }
@@ -174,23 +209,27 @@ internal open class LoginView : Column {
 
     let phoneVisible = next == AuthPhase.Phone
     let qrVisible = next == AuthPhase.Qr && service.Auth.Link != ""
+    let setupVisible = next == AuthPhase.Setup
+    apiId.IsVisible = setupVisible
+    apiHash.IsVisible = setupVisible
     phone.IsVisible = phoneVisible
     code.IsVisible = next == AuthPhase.Code
     password.IsVisible = next == AuthPhase.Password
     qr.IsVisible = qrVisible
+    setupActions.IsVisible = setupVisible
     phoneActions.IsVisible = phoneVisible
     qrActions.IsVisible = qrVisible
     codeActions.IsVisible = next == AuthPhase.Code
     passwordActions.IsVisible = next == AuthPhase.Password
-    steps.IsVisible = next != AuthPhase.Qr
+    steps.IsVisible = next == AuthPhase.Phone || next == AuthPhase.Code || next == AuthPhase.Password
     hint.IsVisible = !qrVisible
     title.IsVisible = !qrVisible
     topSpace.IsVisible = next != AuthPhase.Qr
     bottomSpace.IsVisible = next != AuthPhase.Qr
     centered.Height = next == AuthPhase.Qr ? CellLength.Auto : CellLength.Cells(15)
     centered.GrowWeight = next == AuthPhase.Qr ? 1 : 0
-    footer.LeftText = next == AuthPhase.Setup ? "" : "Tab next"
-    footer.CenterText = next == AuthPhase.Setup ? "" : "Enter continue"
+    footer.LeftText = "Tab next"
+    footer.CenterText = next == AuthPhase.Setup ? "Enter save" : "Enter continue"
     footer.RightText = "Esc quit"
     if next == AuthPhase.Qr {
       footer.LeftText = service.Auth.Link == "" ? "" : "Ctrl+Y copy"
@@ -199,6 +238,7 @@ internal open class LoginView : Column {
 
     if next == phase { return }
     phase = next
+    if setupVisible { Focus(apiId) }
     if phoneVisible { Focus(phone) }
     if next == AuthPhase.Code { Focus(code) }
     if next == AuthPhase.Password { Focus(password) }
@@ -208,6 +248,11 @@ internal open class LoginView : Column {
   private func submitPhone() EventResult {
     if phone.Text.Trim() == "" { return EventResult.Handled }
     service.SubmitPhone(phone.Text)
+    return EventResult.Handled
+  }
+
+  private func submitCredentials() EventResult {
+    service.SubmitCredentials(apiId.Text, apiHash.Text)
     return EventResult.Handled
   }
 

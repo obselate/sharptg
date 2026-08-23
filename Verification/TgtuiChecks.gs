@@ -24,6 +24,12 @@ internal class TgtuiChecks {
       let qr = QrCodeView(TgtuiTheme())
       qr.Text = "tg://login?token=tgtui-selfcheck"
       failures = failures + expect(qr.ModuleSize > 0, "QR encoding")
+      failures = failures + expect(
+        TelegramCredentialStore.Parse("123456", "0123456789abcdef0123456789abcdef") != nil,
+        "credential validation")
+      failures = failures + expect(
+        TelegramCredentialStore.Parse("123456", "not-a-hash") == nil,
+        "invalid credentials rejected")
       if failures == 0 {
         Console.WriteLine("selfcheck: pass")
         return 0

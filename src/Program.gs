@@ -21,7 +21,7 @@ func Main(args []string) int32 {
     return 0
   }
   if args.Length > 0 && args[0] == "--version" {
-    Console.WriteLine("tgtui 0.3.1")
+    Console.WriteLine("tgtui 0.4.0")
     return 0
   }
   if args.Length > 0 && args[0] == "--selfcheck" {

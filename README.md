@@ -18,18 +18,24 @@ Chat synchronization, media previews, message actions, and persistence remain to
 ## Run
 
 ```sh
-./run.fish
+dotnet run --project Tgtui.gsproj -c Release
 ```
 
-The script prompts for the `api_id` and `api_hash` from `my.telegram.org`. It validates them and passes them only to the tgtui process.
+The application asks for the `api_id` and `api_hash` from `my.telegram.org` on first run. It validates them and saves them in the platform user configuration directory under `tgtui/credentials`, with owner-only permissions on Unix.
+
+Delete that file to change the saved credentials.
+
+`./run.fish` is an optional developer shortcut. The application and published executable do not require Fish.
 
 To provide credentials manually:
 
 ```sh
-export TELEGRAM_API_ID=123456
-export TELEGRAM_API_HASH=your_api_hash
+export TGTUI_API_ID=123456
+export TGTUI_API_HASH=your_api_hash
 dotnet run --project Tgtui.gsproj
 ```
+
+The `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` aliases are also accepted.
 
 The offline sample remains available with `--demo`.
 
