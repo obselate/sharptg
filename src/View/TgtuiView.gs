@@ -1,0 +1,185 @@
+package Tgtui
+
+import System
+import SharpTui
+
+internal open class TgtuiView : Column {
+  private let NarrowBreakpoint int32 = 70
+  private var app App
+  private var service DemoTelegramService
+  private var theme TgtuiTheme
+  private var status StatusBar
+  private var footer StatusBar
+  private var dialogs DialogList
+  private var header ConversationHeader
+  private var conversation Conversation
+  private var composer Composer
+  private var body Row
+  private var sidebar Column
+  private var divider Divider
+  private var chat Column
+  private var revision int32
+  private var narrow bool
+  private var dialogsVisible bool
+  private var sidebarExpanded bool
+
+  public init(app App, service DemoTelegramService, theme TgtuiTheme) {
+    this.app = app
+    this.service = service
+    this.theme = theme
+    revision = -1
+    narrow = false
+    dialogsVisible = false
+    sidebarExpanded = true
+
+    status = StatusBar{
+      Height: CellLength.Cells(1),
+      Style: theme.Header,
+      LeftText: "tgtui   ● online",
+      CenterText: "Connected",
+      RightText: "Sam",
+    }
+    footer = StatusBar{
+      Height: CellLength.Cells(1),
+      Style: theme.FooterText,
+      LeftText: "↑/↓ move   Enter send",
+      CenterText: "Ctrl+B sidebar",
+      RightText: "Ctrl+Q quit",
+    }
+    dialogs = DialogList(theme)
+    dialogs.GrowWeight = 1
+    header = ConversationHeader(theme)
+    conversation = Conversation(theme)
+    composer = Composer(theme)
+    sidebar = Column{
+      Width: CellLength.Cells(34),
+      Style: theme.Sidebar,
+      Children: { dialogs },
+    }
+    chat = Column{
+      GrowWeight: 1,
+      Style: theme.Canvas,
+      Children: { header, conversation, composer.Root },
+    }
+    divider = Divider(theme.Header)
+    body = Row{
+      GrowWeight: 1,
+      Style: theme.Canvas,
+      Children: { sidebar, divider, chat },
+    }
+    Style = theme.Canvas
+    Children.Add(status)
+    Children.Add(body)
+    Children.Add(footer)
+    sync()
+    composer.Focus()
+  }
+
+  protected override func PrepareLayout() {
+    let selected = dialogs.ConsumeSelection()
+    if selected >= 0 { service.Select(selected) }
+    sync()
+    applyResponsive(Bounds.WidthCells)
+  }
+
+  protected override func Render(screen Screen, bounds CellRect, style Style) {
+    applyResponsive(bounds.WidthCells)
+  }
+
+  protected override func Accept(ev UiEvent) EventResult {
+    if ev.Phase == KeyPhase.Release { return EventResult.Continue }
+    if KeyGesture.Ctrl("q").Matches(ev) { return EventResult.Exit }
+    if KeyGesture.Ctrl("b").Matches(ev) {
+      if narrow {
+        dialogsVisible = !dialogsVisible
+        if !dialogsVisible { composer.Focus() }
+      } else {
+        sidebarExpanded = !sidebarExpanded
+        sidebar.IsVisible = sidebarExpanded
+        divider.IsVisible = sidebarExpanded
+      }
+      return EventResult.Handled
+    }
+    if ev.Key == Key.Escape {
+      if narrow {
+        dialogsVisible = true
+      }
+      return EventResult.Handled
+    }
+    if ev.Kind == UiEventKind.Mouse && dialogs.IsVisible {
+      if ev.Mouse == MouseKind.ScrollUp {
+        service.Select(dialogs.Move(-1))
+        sync()
+        return EventResult.Handled
+      }
+      if ev.Mouse == MouseKind.ScrollDown {
+        service.Select(dialogs.Move(1))
+        sync()
+        return EventResult.Handled
+      }
+      if ev.Mouse == MouseKind.Press && ev.Button == MouseButton.Left && dialogs.ContentBounds.Contains(ev.Position) {
+        let selected = dialogs.SelectAt(ev.Position.Row)
+        if selected >= 0 { service.Select(selected) }
+        if narrow && selected >= 0 { dialogsVisible = false }
+        sync()
+        return EventResult.Handled
+      }
+    }
+    if ev.Key == Key.Up || ev.Key == Key.Down {
+      service.Select(dialogs.Move(ev.Key == Key.Up ? -1 : 1))
+      sync()
+      return EventResult.Handled
+    }
+    if ev.Key == Key.Enter && narrow && dialogsVisible {
+      dialogsVisible = false
+      composer.Focus()
+      return EventResult.Handled
+    }
+    if ev.Key == Key.Enter && composer.IsFocused {
+      let text = composer.Text
+      service.Send(text)
+      if text.Trim() != "" { composer.Clear() }
+      sync()
+      return EventResult.Handled
+    }
+    return EventResult.Continue
+  }
+
+  private func sync() {
+    if revision == service.Revision { return }
+    revision = service.Revision
+    dialogs.Update(service.Chats, service.SelectedIndex)
+    header.Update(service.SelectedChat)
+    conversation.Update(service.SelectedChat.Messages)
+    status.RightText = service.SelectedChat.Title
+  }
+
+  private func applyResponsive(width int32) {
+    let nextNarrow = width < NarrowBreakpoint
+    if nextNarrow != narrow {
+      narrow = nextNarrow
+      dialogsVisible = false
+      if narrow { composer.Focus() }
+      app.RequestDraw()
+    }
+    if narrow {
+      sidebar.Width = CellLength.Auto
+      sidebar.GrowWeight = 1
+      sidebar.IsVisible = dialogsVisible
+      divider.IsVisible = false
+      chat.IsVisible = !dialogsVisible
+      footer.LeftText = dialogsVisible ? "↑/↓ move" : "Esc chats"
+      footer.CenterText = "Ctrl+B pane"
+      status.RightText = CellText.Clip(service.SelectedChat.Title, 14)
+    } else {
+      sidebar.Width = CellLength.Cells(34)
+      sidebar.GrowWeight = 0
+      sidebar.IsVisible = sidebarExpanded
+      divider.IsVisible = sidebarExpanded
+      chat.IsVisible = true
+      footer.LeftText = "↑/↓ move   Enter send"
+      footer.CenterText = "Ctrl+B sidebar"
+      status.RightText = service.SelectedChat.Title
+    }
+  }
+}
