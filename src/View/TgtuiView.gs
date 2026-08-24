@@ -102,6 +102,11 @@ internal open class TgtuiView : Column {
 
   protected override func Render(screen Screen, bounds CellRect, style Style) {
     applyResponsive(bounds.WidthCells)
+    let height = Math.Max(0, screen.Size.HeightRows - status.Bounds.HeightRows - footer.Bounds.HeightRows)
+    if body.Bounds.HeightRows != height {
+      body.Height = CellLength.Cells(height)
+      app.RequestDraw()
+    }
   }
 
   protected override func Accept(ev UiEvent) EventResult {
