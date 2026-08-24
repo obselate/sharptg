@@ -9,18 +9,30 @@ internal open class DialogList : Box {
   private var chats List[TelegramChat]
   private var selected int32
   private var pendingSelection int32
+  private var archive bool
+  private var loading bool
+  private var focusTarget ListView
 
   public init(theme TgtuiTheme) {
     this.theme = theme
     chats = List[TelegramChat]()
     selected = 0
     pendingSelection = -1
+    archive = false
+    loading = false
+    focusTarget = ListView{
+      GrowWeight: 1,
+      SelectionMarker: "",
+    }
+    Children.Add(focusTarget)
     Style = theme.Sidebar
   }
 
-  internal func Update(items List[TelegramChat], selectedIndex int32) {
+  internal func Update(items List[TelegramChat], selectedIndex int32, showArchive bool, isLoading bool) {
     chats = items
     selected = selectedIndex
+    archive = showArchive
+    loading = isLoading
   }
 
   internal func Move(delta int32) int32 {
@@ -41,29 +53,52 @@ internal open class DialogList : Box {
     return index
   }
 
+  internal func SelectTabAt(column int32, row int32) int32 {
+    if row != ContentBounds.Row { return -1 }
+    let relative = column - ContentBounds.Column
+    if relative >= 1 && relative <= 6 { return 0 }
+    if relative >= 7 && relative <= 18 { return 1 }
+    return -1
+  }
+
   internal func ConsumeSelection() int32 {
     let value = pendingSelection
     pendingSelection = -1
     return value
   }
 
+  internal func FocusList() {
+    Focus(focusTarget)
+  }
+
   protected override func Render(screen Screen, bounds CellRect, style Style) {
     screen.Fill(bounds, theme.Sidebar)
     if bounds.WidthCells < 8 || bounds.HeightRows < 2 { return }
-    let tabStyle = Style{
+    let activeTab = Style{
       Foreground: Color.Rgb("f4f7fc"),
       Background: Color.Rgb("438fdf"),
       Attributes: TextAttributes.Bold,
     }
-    screen.WriteClipped(bounds, 2, 0, "All", theme.Muted)
-    screen.WriteClipped(bounds, 8, 0, " Archive ", tabStyle)
-    screen.Write(bounds.Column + bounds.WidthCells - 2, bounds.Row, chats.Count.ToString(), theme.Muted)
+    screen.WriteClipped(bounds, 2, 0, " All ", archive ? theme.Muted : activeTab)
+    screen.WriteClipped(bounds, 8, 0, " Archive ", archive ? activeTab : theme.Muted)
+    let count = chats.Count.ToString()
+    screen.Write(bounds.Column + bounds.WidthCells - CellText.MeasureWidth(count) - 1, bounds.Row, count, theme.Muted)
     screen.Fill(CellRect{
       Column: bounds.Column,
       Row: bounds.Row + 1,
       WidthCells: bounds.WidthCells,
       HeightRows: 1,
     }, theme.Canvas)
+
+    if chats.Count == 0 {
+      let empty = loading ? "Loading chats..." : (archive ? "Archive is empty" : "No chats here")
+      let emptyColumn = bounds.Column + Math.Max(1, (bounds.WidthCells - CellText.MeasureWidth(empty)) / 2)
+      let emptyRow = bounds.Row + Math.Max(3, bounds.HeightRows / 2)
+      if emptyRow < bounds.Row + bounds.HeightRows {
+        screen.Write(emptyColumn, emptyRow, CellText.Clip(empty, bounds.WidthCells - 2), theme.Muted)
+      }
+      return
+    }
 
     var index = 0
     var row = bounds.Row + 2

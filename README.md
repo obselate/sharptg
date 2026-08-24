@@ -12,8 +12,10 @@ This repository currently contains the first runnable vertical slice:
 - keyboard and mouse chat selection
 - functional composer with an offline sample service
 - native TDLib JSON authorization through QR, phone, code, and cloud password states
+- live main and archive chat lists with TDLib ordering and unread state
+- recent message history, live message updates, read receipts, and text sending
 
-Chat synchronization, media previews, message actions, and persistence remain to be ported.
+Folder tabs, full media previews, and message actions remain to be ported.
 
 ## Run
 

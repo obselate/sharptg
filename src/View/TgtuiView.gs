@@ -36,7 +36,7 @@ internal open class TgtuiView : Column {
       Height: CellLength.Cells(1),
       Style: theme.Header,
       LeftText: "tgtui   ● online",
-      CenterText: "Connected",
+      CenterText: service.ConnectionText,
       RightText: "Sam",
     }
     footer = StatusBar{
@@ -92,7 +92,11 @@ internal open class TgtuiView : Column {
     if KeyGesture.Ctrl("b").Matches(ev) {
       if narrow {
         dialogsVisible = !dialogsVisible
-        if !dialogsVisible { composer.Focus() }
+        if dialogsVisible {
+          dialogs.FocusList()
+        } else {
+          composer.Focus()
+        }
       } else {
         sidebarExpanded = !sidebarExpanded
         sidebar.IsVisible = sidebarExpanded
@@ -103,7 +107,13 @@ internal open class TgtuiView : Column {
     if ev.Key == Key.Escape {
       if narrow {
         dialogsVisible = true
+        dialogs.FocusList()
       }
+      return EventResult.Handled
+    }
+    if narrow && dialogsVisible && (ev.Key == Key.Left || ev.Key == Key.Right) {
+      service.SetArchive(ev.Key == Key.Right)
+      sync()
       return EventResult.Handled
     }
     if ev.Kind == UiEventKind.Mouse && dialogs.IsVisible {
@@ -118,9 +128,21 @@ internal open class TgtuiView : Column {
         return EventResult.Handled
       }
       if ev.Mouse == MouseKind.Press && ev.Button == MouseButton.Left && dialogs.ContentBounds.Contains(ev.Position) {
+        let tab = dialogs.SelectTabAt(ev.Position.Column, ev.Position.Row)
+        if tab >= 0 {
+          service.SetArchive(tab == 1)
+          sync()
+          return EventResult.Handled
+        }
         let selected = dialogs.SelectAt(ev.Position.Row)
-        if selected >= 0 { service.Select(selected) }
-        if narrow && selected >= 0 { dialogsVisible = false }
+        if selected >= 0 {
+          service.Select(selected)
+          if !narrow { composer.Focus() }
+        }
+        if narrow && selected >= 0 {
+          dialogsVisible = false
+          composer.Focus()
+        }
         sync()
         return EventResult.Handled
       }
@@ -148,15 +170,18 @@ internal open class TgtuiView : Column {
   private func sync() {
     if revision == service.Revision { return }
     revision = service.Revision
-    dialogs.Update(service.Chats, service.SelectedIndex)
+    dialogs.Update(service.Chats, service.SelectedIndex, service.ShowArchive, service.ChatsLoading)
+    status.CenterText = service.ConnectionText
     if let selected = service.SelectedChat {
       header.Update(selected)
-      conversation.Update(selected.Messages)
+      conversation.Update(selected.Messages, service.MessagesLoading)
+      composer.Root.IsVisible = selected.CanSend
       status.RightText = selected.Title
       return
     }
     header.Clear()
     conversation.Clear()
+    composer.Root.IsVisible = false
     status.RightText = "No chats"
   }
 
@@ -174,7 +199,7 @@ internal open class TgtuiView : Column {
       sidebar.IsVisible = dialogsVisible
       divider.IsVisible = false
       chat.IsVisible = !dialogsVisible
-      footer.LeftText = dialogsVisible ? "↑/↓ move" : "Esc chats"
+      footer.LeftText = dialogsVisible ? "↑/↓ move   ←/→ list" : "Esc chats"
       footer.CenterText = "Ctrl+B pane"
       status.RightText = CellText.Clip(selectedTitle(), 14)
     } else {

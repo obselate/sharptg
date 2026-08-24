@@ -7,25 +7,36 @@ import SharpTui
 internal open class Conversation : Box {
   private var theme TgtuiTheme
   private var messages List[TelegramMessage]
+  private var loading bool
 
   public init(theme TgtuiTheme) {
     this.theme = theme
     messages = List[TelegramMessage]()
+    loading = false
     GrowWeight = 1
     Style = theme.Canvas
   }
 
-  internal func Update(items List[TelegramMessage]) {
+  internal func Update(items List[TelegramMessage], isLoading bool) {
     messages = items
+    loading = isLoading
   }
 
   internal func Clear() {
     messages = List[TelegramMessage]()
+    loading = false
   }
 
   protected override func Render(screen Screen, bounds CellRect, style Style) {
     screen.Fill(bounds, theme.Canvas)
     if bounds.WidthCells < 12 || bounds.HeightRows < 2 { return }
+    if messages.Count == 0 {
+      let empty = loading ? "Loading messages..." : "No messages"
+      let column = bounds.Column + Math.Max(1, (bounds.WidthCells - CellText.MeasureWidth(empty)) / 2)
+      let row = bounds.Row + bounds.HeightRows / 2
+      screen.Write(column, row, empty, theme.Muted)
+      return
+    }
     var row = bounds.Row + bounds.HeightRows - 1
     var index = messages.Count - 1
     while index >= 0 && row >= bounds.Row {

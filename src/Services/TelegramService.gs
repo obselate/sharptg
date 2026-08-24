@@ -3,6 +3,7 @@ package Tgtui
 import System
 import System.Collections.Generic
 import System.IO
+import System.Globalization
 import System.Text.Json
 import System.Text.Json.Nodes
 import System.Text
@@ -12,6 +13,8 @@ import SharpTui
 internal class TelegramService {
   private var app App
   private var chats List[TelegramChat]
+  private var knownChats Dictionary[string, TelegramChat]
+  private var users Dictionary[int64, string]
   private var auth AuthState
   private var selectedIndex int32
   private var revision int32
@@ -22,6 +25,13 @@ internal class TelegramService {
   private var resettingPhone bool
   private var stopping bool
   private var receiver Thread?
+  private var showArchive bool
+  private var chatsLoading bool
+  private var messagesLoading bool
+  private var connectionText string
+  private var openChatId int64
+  private var pendingChatLoads int32
+  private var demoMode bool
 
   internal prop Chats List[TelegramChat] -> chats
   internal prop Auth AuthState -> auth
@@ -34,10 +44,16 @@ internal class TelegramService {
   }
   internal prop SelectedIndex int32 -> selectedIndex
   internal prop Revision int32 -> revision
+  internal prop ShowArchive bool -> showArchive
+  internal prop ChatsLoading bool -> chatsLoading
+  internal prop MessagesLoading bool -> messagesLoading
+  internal prop ConnectionText string -> connectionText
 
   public init(app App, demo bool) {
     this.app = app
     chats = List[TelegramChat]()
+    knownChats = Dictionary[string, TelegramChat]()
+    users = Dictionary[int64, string]()
     auth = AuthState()
     selectedIndex = 0
     revision = 1
@@ -48,11 +64,19 @@ internal class TelegramService {
     resettingPhone = false
     stopping = false
     receiver = nil
+    showArchive = false
+    chatsLoading = false
+    messagesLoading = false
+    connectionText = "Connecting"
+    openChatId = 0
+    pendingChatLoads = 0
+    demoMode = demo
 
     if demo {
       chats = createDemoChats()
       auth.Phase = AuthPhase.Ready
       auth.Hint = "Demo session"
+      connectionText = "Demo session"
       return
     }
     start()
@@ -61,23 +85,48 @@ internal class TelegramService {
   internal func Select(index int32) {
     if index < 0 || index >= chats.Count || index == selectedIndex { return }
     selectedIndex = index
-    chats[index].Unread = 0
+    if demoMode { chats[index].Unread = 0 }
+    openSelectedChat()
     changed()
   }
 
   internal func Send(text string) {
     let clean = text.Trim()
     if clean == "" || !HasChats { return }
+    guard let chat = SelectedChat else { return }
+    if !demoMode {
+      if !chat.CanSend || chat.TdId == 0 { return }
+      let formatted = JsonObject()
+      formatted["@type"] = "formattedText"
+      formatted["text"] = clean
+      formatted["entities"] = JsonArray()
+      let content = JsonObject()
+      content["@type"] = "inputMessageText"
+      content["text"] = formatted
+      content["clear_draft"] = true
+      let request = JsonObject()
+      request["@type"] = "sendMessage"
+      request["chat_id"] = chat.TdId
+      request["input_message_content"] = content
+      send(request.ToJsonString())
+      return
+    }
     let message = TelegramMessage(
       "local-" + revision.ToString(),
       "Sam",
       clean,
       DateTime.Now.ToString("HH:mm"),
       true)
-    guard let chat = SelectedChat else { return }
     chat.Messages.Add(message)
     chat.Preview = clean
     chat.Time = message.Time
+    changed()
+  }
+
+  internal func SetArchive(value bool) {
+    if showArchive == value { return }
+    showArchive = value
+    rebuildChats()
     changed()
   }
 
@@ -212,9 +261,83 @@ internal class TelegramService {
         if root.TryGetProperty("authorization_state", out var state) { processAuth(state) }
         return
       }
-      if kind == "error" && auth.Phase != AuthPhase.Ready {
-        fail(jsonString(root, "message"))
+      if kind == "error" {
+        processError(root)
+        return
       }
+      if kind == "ok" {
+        completeChatLoad(jsonString(root, "@extra"))
+        return
+      }
+      if kind == "messages" {
+        processHistory(root)
+        return
+      }
+      if kind == "chat" {
+        upsertChat(root)
+        return
+      }
+      if kind == "user" {
+        processUser(root)
+        return
+      }
+      if kind == "updateConnectionState" {
+        processConnection(root)
+        return
+      }
+      if kind == "updateNewChat" {
+        if root.TryGetProperty("chat", out var chat) { upsertChat(chat) }
+        return
+      }
+      if kind == "updateChatLastMessage" {
+        processLastMessage(root)
+        return
+      }
+      if kind == "updateChatPosition" {
+        processChatPosition(root)
+        return
+      }
+      if kind == "updateChatReadInbox" {
+        processReadInbox(root)
+        return
+      }
+      if kind == "updateChatReadOutbox" {
+        processReadOutbox(root)
+        return
+      }
+      if kind == "updateChatTitle" {
+        processChatTitle(root)
+        return
+      }
+      if kind == "updateChatNotificationSettings" {
+        processNotificationSettings(root)
+        return
+      }
+      if kind == "updateChatPermissions" {
+        processPermissions(root)
+        return
+      }
+      if kind == "updateUser" {
+        if root.TryGetProperty("user", out var user) { processUser(user) }
+        return
+      }
+      if kind == "updateUserStatus" {
+        processUserStatus(root)
+        return
+      }
+      if kind == "updateNewMessage" {
+        if root.TryGetProperty("message", out var message) { processNewMessage(message) }
+        return
+      }
+      if kind == "updateMessageSendSucceeded" {
+        processSendSucceeded(root)
+        return
+      }
+      if kind == "updateMessageContent" {
+        processMessageContent(root)
+        return
+      }
+      if kind == "updateDeleteMessages" { processDeletedMessages(root) }
     } catch (failure Exception) {
       fail(failure.Message)
     }
@@ -248,6 +371,7 @@ internal class TelegramService {
     } else if kind == "authorizationStateReady" {
       auth.Phase = AuthPhase.Ready
       auth.Hint = "Connected"
+      beginChatSync()
       changed()
     } else if kind == "authorizationStateClosed" {
       if resettingPhone && !stopping {
@@ -263,6 +387,567 @@ internal class TelegramService {
       auth.Hint = "Telegram session closed"
       changed()
     }
+  }
+
+  private func beginChatSync() {
+    connectionText = "Connected"
+    chatsLoading = true
+    pendingChatLoads = 2
+    requestChatList(false)
+    requestChatList(true)
+    let me = JsonObject()
+    me["@type"] = "getMe"
+    me["@extra"] = "me"
+    send(me.ToJsonString())
+  }
+
+  private func requestChatList(archive bool) {
+    let list = JsonObject()
+    list["@type"] = archive ? "chatListArchive" : "chatListMain"
+    let request = JsonObject()
+    request["@type"] = "loadChats"
+    request["@extra"] = archive ? "load:archive" : "load:main"
+    request["chat_list"] = list
+    request["limit"] = 100
+    send(request.ToJsonString())
+  }
+
+  private func completeChatLoad(extra string) {
+    if !extra.StartsWith("load:") { return }
+    if pendingChatLoads > 0 { pendingChatLoads = pendingChatLoads - 1 }
+    chatsLoading = pendingChatLoads > 0
+    rebuildChats()
+    changed()
+  }
+
+  private func processError(root JsonElement) {
+    let extra = jsonString(root, "@extra")
+    if extra.StartsWith("load:") {
+      completeChatLoad(extra)
+      return
+    }
+    if extra.StartsWith("history:") {
+      messagesLoading = false
+      changed()
+      return
+    }
+    if auth.Phase != AuthPhase.Ready { fail(jsonString(root, "message")) }
+  }
+
+  private func processConnection(root JsonElement) {
+    if !root.TryGetProperty("state", out var state) { return }
+    let kind = jsonString(state, "@type")
+    if kind == "connectionStateReady" {
+      connectionText = "Connected"
+    } else if kind == "connectionStateConnecting" {
+      connectionText = "Connecting"
+    } else if kind == "connectionStateUpdating" {
+      connectionText = "Updating"
+    } else if kind == "connectionStateWaitingForNetwork" {
+      connectionText = "Waiting for network"
+    } else {
+      connectionText = "Connecting"
+    }
+    changed()
+  }
+
+  private func upsertChat(root JsonElement) {
+    let id = jsonInt64(root, "id")
+    if id == 0 { return }
+    let idText = id.ToString(CultureInfo.InvariantCulture)
+    if knownChats.TryGetValue(idText, out var chat) {
+      applyChat(chat, root)
+    } else {
+      let title = jsonString(root, "title")
+      let created = TelegramChat(idText, initials(title), title, "", "")
+      created.TdId = id
+      knownChats[idText] = created
+      applyChat(created, root)
+    }
+    rebuildChats()
+    changed()
+  }
+
+  private func applyChat(chat TelegramChat, root JsonElement) {
+    let title = jsonString(root, "title")
+    if title != "" {
+      chat.Title = title
+      chat.Initials = initials(title)
+    }
+    chat.Unread = jsonInt32(root, "unread_count", chat.Unread)
+    chat.LastReadOutboxId = jsonInt64(root, "last_read_outbox_message_id", chat.LastReadOutboxId)
+    if root.TryGetProperty("type", out var chatType) {
+      if jsonString(chatType, "@type") == "chatTypePrivate" {
+        chat.UserId = jsonInt64(chatType, "user_id")
+      }
+    }
+    if root.TryGetProperty("notification_settings", out var settings) {
+      chat.Muted = jsonInt32(settings, "mute_for") > 0
+    }
+    if root.TryGetProperty("permissions", out var permissions) {
+      chat.CanSend = jsonBool(permissions, "can_send_basic_messages", true)
+    }
+    if root.TryGetProperty("positions", out var positions) { applyPositions(chat, positions) }
+    if root.TryGetProperty("last_message", out var lastMessage) && lastMessage.ValueKind == JsonValueKind.Object {
+      applyLastMessage(chat, lastMessage)
+    }
+    chat.Archived = chat.MainOrder == 0 && chat.ArchiveOrder > 0
+    updateReceipts(chat)
+  }
+
+  private func applyPositions(chat TelegramChat, positions JsonElement) {
+    if positions.ValueKind != JsonValueKind.Array { return }
+    for position in positions.EnumerateArray() { applyPosition(chat, position) }
+  }
+
+  private func applyPosition(chat TelegramChat, position JsonElement) {
+    if !position.TryGetProperty("list", out var list) { return }
+    let kind = jsonString(list, "@type")
+    let order = jsonInt64(position, "order")
+    let pinned = jsonBool(position, "is_pinned")
+    if kind == "chatListMain" {
+      chat.MainOrder = order
+      chat.MainPinned = pinned
+    } else if kind == "chatListArchive" {
+      chat.ArchiveOrder = order
+      chat.ArchivePinned = pinned
+    }
+    chat.Archived = chat.MainOrder == 0 && chat.ArchiveOrder > 0
+  }
+
+  private func rebuildChats() {
+    let selectedId = if let selected = SelectedChat { selected.Id } else { "" }
+    chats.Clear()
+    for chat in knownChats.Values {
+      let order = showArchive ? chat.ArchiveOrder : chat.MainOrder
+      if order == 0 { continue }
+      chat.Pinned = showArchive ? chat.ArchivePinned : chat.MainPinned
+      chats.Add(chat)
+    }
+    sortChats()
+    selectedIndex = 0
+    if selectedId != "" {
+      var index = 0
+      while index < chats.Count {
+        if chats[index].Id == selectedId {
+          selectedIndex = index
+          break
+        }
+        index = index + 1
+      }
+    }
+    if HasChats {
+      openSelectedChat()
+    } else if openChatId != 0 {
+      closeOpenChat()
+    }
+  }
+
+  private func sortChats() {
+    var index = 1
+    while index < chats.Count {
+      var current = index
+      while current > 0 && chatBefore(chats[current], chats[current - 1]) {
+        let previous = chats[current - 1]
+        chats[current - 1] = chats[current]
+        chats[current] = previous
+        current = current - 1
+      }
+      index = index + 1
+    }
+  }
+
+  private func chatBefore(left TelegramChat, right TelegramChat) bool {
+    if left.Pinned != right.Pinned { return left.Pinned }
+    let leftOrder = showArchive ? left.ArchiveOrder : left.MainOrder
+    let rightOrder = showArchive ? right.ArchiveOrder : right.MainOrder
+    if leftOrder != rightOrder { return leftOrder > rightOrder }
+    return left.LastMessageDate > right.LastMessageDate
+  }
+
+  private func openSelectedChat() {
+    if demoMode { return }
+    guard let chat = SelectedChat else { return }
+    if chat.TdId == 0 || openChatId == chat.TdId { return }
+    closeOpenChat()
+    openChatId = chat.TdId
+    chat.Messages.Clear()
+    chat.Unread = 0
+    messagesLoading = true
+    let request = JsonObject()
+    request["@type"] = "openChat"
+    request["chat_id"] = chat.TdId
+    send(request.ToJsonString())
+    requestHistory(chat.TdId, 0, 0)
+  }
+
+  private func closeOpenChat() {
+    if openChatId == 0 { return }
+    let close = JsonObject()
+    close["@type"] = "closeChat"
+    close["chat_id"] = openChatId
+    send(close.ToJsonString())
+    openChatId = 0
+    messagesLoading = false
+  }
+
+  private func requestHistory(chatId int64, fromMessageId int64, page int32) {
+    let request = JsonObject()
+    request["@type"] = "getChatHistory"
+    let extra = "history:" + chatId.ToString(CultureInfo.InvariantCulture) + ":" + fromMessageId.ToString(CultureInfo.InvariantCulture) + ":" + page.ToString(CultureInfo.InvariantCulture)
+    request["@extra"] = extra
+    request["chat_id"] = chatId
+    request["from_message_id"] = fromMessageId
+    request["offset"] = 0
+    request["limit"] = 100
+    request["only_local"] = false
+    send(request.ToJsonString())
+  }
+
+  private func processHistory(root JsonElement) {
+    let parts = jsonString(root, "@extra").Split(':')
+    if parts.Length != 4 { return }
+    if !Int64.TryParse(parts[1], out var chatId) || chatId != openChatId { return }
+    if !Int64.TryParse(parts[2], out var fromMessageId) { return }
+    if !Int32.TryParse(parts[3], out var page) { return }
+    guard let chat = findChat(chatId) else { return }
+    if !root.TryGetProperty("messages", out var messages) || messages.ValueKind != JsonValueKind.Array {
+      messagesLoading = false
+      changed()
+      return
+    }
+    if fromMessageId == 0 { chat.Messages.Clear() }
+    var added = 0
+    var index = 0
+    while index < messages.GetArrayLength() {
+      let source = messages[index]
+      if source.ValueKind == JsonValueKind.Object {
+        let message = convertMessage(source, chat)
+        if message.TdId != 0 && !hasMessage(chat, message.TdId) {
+          chat.Messages.Insert(0, message)
+          added = added + 1
+        }
+      }
+      index = index + 1
+    }
+    resolveReplies(chat)
+    markRead(chat)
+    if added == 0 && fromMessageId == 0 && page == 0 {
+      requestHistory(chatId, 0, 1)
+      changed()
+      return
+    }
+    if added > 0 && chat.Messages.Count < 100 && page < 20 {
+      let oldest = chat.Messages[0].TdId
+      requestHistory(chatId, oldest, page + 1)
+    } else {
+      messagesLoading = false
+    }
+    changed()
+  }
+
+  private func processLastMessage(root JsonElement) {
+    guard let chat = findChat(jsonInt64(root, "chat_id")) else { return }
+    if root.TryGetProperty("last_message", out var message) && message.ValueKind == JsonValueKind.Object {
+      applyLastMessage(chat, message)
+    }
+    if root.TryGetProperty("positions", out var positions) { applyPositions(chat, positions) }
+    rebuildChats()
+    changed()
+  }
+
+  private func processChatPosition(root JsonElement) {
+    guard let chat = findChat(jsonInt64(root, "chat_id")) else { return }
+    if root.TryGetProperty("position", out var position) { applyPosition(chat, position) }
+    rebuildChats()
+    changed()
+  }
+
+  private func processReadInbox(root JsonElement) {
+    guard let chat = findChat(jsonInt64(root, "chat_id")) else { return }
+    chat.Unread = jsonInt32(root, "unread_count")
+    changed()
+  }
+
+  private func processReadOutbox(root JsonElement) {
+    guard let chat = findChat(jsonInt64(root, "chat_id")) else { return }
+    chat.LastReadOutboxId = jsonInt64(root, "last_read_outbox_message_id")
+    updateReceipts(chat)
+    changed()
+  }
+
+  private func processChatTitle(root JsonElement) {
+    guard let chat = findChat(jsonInt64(root, "chat_id")) else { return }
+    chat.Title = jsonString(root, "title")
+    chat.Initials = initials(chat.Title)
+    changed()
+  }
+
+  private func processNotificationSettings(root JsonElement) {
+    guard let chat = findChat(jsonInt64(root, "chat_id")) else { return }
+    if root.TryGetProperty("notification_settings", out var settings) {
+      chat.Muted = jsonInt32(settings, "mute_for") > 0
+      changed()
+    }
+  }
+
+  private func processPermissions(root JsonElement) {
+    guard let chat = findChat(jsonInt64(root, "chat_id")) else { return }
+    if root.TryGetProperty("permissions", out var permissions) {
+      chat.CanSend = jsonBool(permissions, "can_send_basic_messages", true)
+      changed()
+    }
+  }
+
+  private func processUser(root JsonElement) {
+    let id = jsonInt64(root, "id")
+    if id == 0 { return }
+    let first = jsonString(root, "first_name")
+    let last = jsonString(root, "last_name")
+    var name = (first + " " + last).Trim()
+    if name == "" { name = "User" }
+    users[id] = name
+    for chat in knownChats.Values {
+      for message in chat.Messages {
+        if message.SenderId == id { message.Author = name }
+      }
+    }
+    changed()
+  }
+
+  private func processUserStatus(root JsonElement) {
+    let userId = jsonInt64(root, "user_id")
+    if !root.TryGetProperty("status", out var status) { return }
+    let online = jsonString(status, "@type") == "userStatusOnline"
+    for chat in knownChats.Values {
+      if chat.UserId == userId { chat.Online = online }
+    }
+    changed()
+  }
+
+  private func processNewMessage(root JsonElement) {
+    let chatId = jsonInt64(root, "chat_id")
+    guard let chat = findChat(chatId) else {
+      requestChat(chatId)
+      return
+    }
+    let message = convertMessage(root, chat)
+    if chatId == openChatId && !hasMessage(chat, message.TdId) {
+      chat.Messages.Add(message)
+      resolveReplies(chat)
+      markRead(chat)
+    }
+    applyLastMessage(chat, root)
+    rebuildChats()
+    changed()
+  }
+
+  private func processSendSucceeded(root JsonElement) {
+    if !root.TryGetProperty("message", out var source) { return }
+    guard let chat = findChat(jsonInt64(source, "chat_id")) else { return }
+    let oldId = jsonInt64(root, "old_message_id")
+    removeMessage(chat, oldId)
+    let message = convertMessage(source, chat)
+    if chat.TdId == openChatId && !hasMessage(chat, message.TdId) { chat.Messages.Add(message) }
+    applyLastMessage(chat, source)
+    rebuildChats()
+    changed()
+  }
+
+  private func processMessageContent(root JsonElement) {
+    guard let chat = findChat(jsonInt64(root, "chat_id")) else { return }
+    let messageId = jsonInt64(root, "message_id")
+    if !root.TryGetProperty("new_content", out var content) { return }
+    for message in chat.Messages {
+      if message.TdId == messageId {
+        message.Text = contentText(content)
+        break
+      }
+    }
+    changed()
+  }
+
+  private func processDeletedMessages(root JsonElement) {
+    guard let chat = findChat(jsonInt64(root, "chat_id")) else { return }
+    if !root.TryGetProperty("message_ids", out var ids) || ids.ValueKind != JsonValueKind.Array { return }
+    for id in ids.EnumerateArray() { removeMessage(chat, elementInt64(id)) }
+    changed()
+  }
+
+  private func requestChat(chatId int64) {
+    if chatId == 0 { return }
+    let request = JsonObject()
+    request["@type"] = "getChat"
+    request["chat_id"] = chatId
+    send(request.ToJsonString())
+  }
+
+  private func applyLastMessage(chat TelegramChat, root JsonElement) {
+    chat.Preview = messagePreview(root)
+    chat.LastMessageDate = jsonInt32(root, "date")
+    chat.Time = formatChatTime(chat.LastMessageDate)
+  }
+
+  private func convertMessage(root JsonElement, chat TelegramChat) TelegramMessage {
+    let id = jsonInt64(root, "id")
+    let outgoing = jsonBool(root, "is_outgoing")
+    let senderId = senderId(root)
+    var author = outgoing ? "You" : chat.Title
+    if users.TryGetValue(senderId, out var senderName) { author = senderName }
+    let message = TelegramMessage(
+      id.ToString(CultureInfo.InvariantCulture),
+      author,
+      messagePreview(root),
+      formatMessageTime(jsonInt32(root, "date")),
+      outgoing)
+    message.TdId = id
+    message.SenderId = senderId
+    message.Read = outgoing && id <= chat.LastReadOutboxId
+    if root.TryGetProperty("reply_to", out var reply) {
+      let replyId = jsonInt64(reply, "message_id")
+      if replyId != 0 {
+        message.ReplyText = replyId.ToString(CultureInfo.InvariantCulture)
+        message.ReplyAuthor = "Reply"
+      }
+    }
+    return message
+  }
+
+  private func resolveReplies(chat TelegramChat) {
+    for message in chat.Messages {
+      if message.ReplyAuthor != "Reply" { continue }
+      if !Int64.TryParse(message.ReplyText, out var replyId) { continue }
+      for source in chat.Messages {
+        if source.TdId == replyId {
+          message.ReplyAuthor = source.Author
+          message.ReplyText = source.Text
+          break
+        }
+      }
+    }
+  }
+
+  private func markRead(chat TelegramChat) {
+    if chat.TdId != openChatId || chat.Messages.Count == 0 { return }
+    let ids = JsonArray()
+    for message in chat.Messages {
+      if message.TdId != 0 {
+        ids.Add(JsonNode.Parse(message.TdId.ToString(CultureInfo.InvariantCulture)))
+      }
+    }
+    if ids.Count == 0 { return }
+    let source = JsonObject()
+    source["@type"] = "messageSourceChatHistory"
+    let request = JsonObject()
+    request["@type"] = "viewMessages"
+    request["chat_id"] = chat.TdId
+    request["message_ids"] = ids
+    request["source"] = source
+    request["force_read"] = true
+    send(request.ToJsonString())
+    chat.Unread = 0
+  }
+
+  private func updateReceipts(chat TelegramChat) {
+    for message in chat.Messages {
+      if message.Outgoing { message.Read = message.TdId <= chat.LastReadOutboxId }
+    }
+  }
+
+  private func findChat(id int64) TelegramChat? {
+    if id == 0 { return nil }
+    let key = id.ToString(CultureInfo.InvariantCulture)
+    if knownChats.TryGetValue(key, out var chat) { return chat }
+    return nil
+  }
+
+  private func hasMessage(chat TelegramChat, id int64) bool {
+    if id == 0 { return false }
+    for message in chat.Messages {
+      if message.TdId == id { return true }
+    }
+    return false
+  }
+
+  private func removeMessage(chat TelegramChat, id int64) {
+    var index = chat.Messages.Count - 1
+    while index >= 0 {
+      if chat.Messages[index].TdId == id { chat.Messages.RemoveAt(index) }
+      index = index - 1
+    }
+  }
+
+  private func messagePreview(root JsonElement) string {
+    if !root.TryGetProperty("content", out var content) { return "Unsupported message" }
+    return contentText(content)
+  }
+
+  private func contentText(content JsonElement) string {
+    let kind = jsonString(content, "@type")
+    if kind == "messageText" && content.TryGetProperty("text", out var text) {
+      return formattedText(text)
+    }
+    let caption = if content.TryGetProperty("caption", out var value) { formattedText(value) } else { "" }
+    if kind == "messagePhoto" { return mediaText("Photo", caption) }
+    if kind == "messageVideo" { return mediaText("Video", caption) }
+    if kind == "messageAnimation" { return mediaText("GIF", caption) }
+    if kind == "messageVoiceNote" { return mediaText("Voice message", caption) }
+    if kind == "messageVideoNote" { return "Video message" }
+    if kind == "messageAudio" { return mediaText("Audio", caption) }
+    if kind == "messageDocument" { return mediaText("Document", caption) }
+    if kind == "messageSticker" && content.TryGetProperty("sticker", out var sticker) {
+      let emoji = jsonString(sticker, "emoji")
+      return emoji == "" ? "Sticker" : emoji + " Sticker"
+    }
+    if kind == "messagePoll" && content.TryGetProperty("poll", out var poll) {
+      return "Poll: " + jsonString(poll, "question")
+    }
+    if kind == "messageContact" { return "Contact" }
+    if kind == "messageLocation" { return "Location" }
+    if kind == "messageVenue" { return "Location" }
+    if kind == "messageCall" { return "Call" }
+    if kind.StartsWith("messageChat") { return "Service message" }
+    return "Unsupported message"
+  }
+
+  private func formattedText(root JsonElement) string -> jsonString(root, "text")
+
+  private func mediaText(label string, caption string) string {
+    if caption == "" { return label }
+    return label + " · " + caption
+  }
+
+  private func senderId(root JsonElement) int64 {
+    if !root.TryGetProperty("sender_id", out var sender) { return 0 }
+    let kind = jsonString(sender, "@type")
+    if kind == "messageSenderUser" { return jsonInt64(sender, "user_id") }
+    if kind == "messageSenderChat" { return jsonInt64(sender, "chat_id") }
+    return 0
+  }
+
+  private func initials(title string) string {
+    let clean = title.Trim()
+    if clean == "" { return "TG" }
+    let words = clean.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+    if words.Length > 1 {
+      return (words[0].Substring(0, 1) + words[1].Substring(0, 1)).ToUpperInvariant()
+    }
+    if clean.Length == 1 { return clean.ToUpperInvariant() }
+    return clean.Substring(0, 2).ToUpperInvariant()
+  }
+
+  private func formatMessageTime(timestamp int32) string {
+    if timestamp <= 0 { return "" }
+    return DateTimeOffset.FromUnixTimeSeconds(timestamp).ToLocalTime().ToString("HH:mm")
+  }
+
+  private func formatChatTime(timestamp int32) string {
+    if timestamp <= 0 { return "" }
+    let value = DateTimeOffset.FromUnixTimeSeconds(timestamp).ToLocalTime()
+    let today = DateTimeOffset.Now.Date
+    if value.Date == today { return value.ToString("HH:mm") }
+    if value.Date == today.AddDays(-1) { return "yesterday" }
+    return value.ToString("dd MMM")
   }
 
   private func sendParameters() {
@@ -290,7 +975,7 @@ internal class TelegramService {
     request["system_language_code"] = "en"
     request["device_model"] = "Terminal"
     request["system_version"] = Environment.OSVersion.VersionString
-    request["application_version"] = "0.4.0"
+    request["application_version"] = "0.5.0"
     send(request.ToJsonString())
   }
 
@@ -335,6 +1020,41 @@ internal class TelegramService {
       return value.GetString() ?? ""
     }
     return ""
+  }
+
+  private func jsonInt64(root JsonElement, name string) int64 -> jsonInt64(root, name, 0)
+
+  private func jsonInt64(root JsonElement, name string, fallback int64) int64 {
+    if !root.TryGetProperty(name, out var value) { return fallback }
+    return elementInt64(value, fallback)
+  }
+
+  private func elementInt64(value JsonElement) int64 -> elementInt64(value, 0)
+
+  private func elementInt64(value JsonElement, fallback int64) int64 {
+    if value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var number) { return number }
+    if value.ValueKind == JsonValueKind.String
+      && Int64.TryParse(value.GetString(), out var parsed) { return parsed }
+    return fallback
+  }
+
+  private func jsonInt32(root JsonElement, name string) int32 -> jsonInt32(root, name, 0)
+
+  private func jsonInt32(root JsonElement, name string, fallback int32) int32 {
+    if !root.TryGetProperty(name, out var value) { return fallback }
+    if value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number) { return number }
+    if value.ValueKind == JsonValueKind.String
+      && Int32.TryParse(value.GetString(), out var parsed) { return parsed }
+    return fallback
+  }
+
+  private func jsonBool(root JsonElement, name string) bool -> jsonBool(root, name, false)
+
+  private func jsonBool(root JsonElement, name string, fallback bool) bool {
+    if !root.TryGetProperty(name, out var value) { return fallback }
+    if value.ValueKind == JsonValueKind.True { return true }
+    if value.ValueKind == JsonValueKind.False { return false }
+    return fallback
   }
 
 }
