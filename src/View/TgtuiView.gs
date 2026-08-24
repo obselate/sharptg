@@ -182,8 +182,8 @@ internal open class TgtuiView : Column {
 
   private func handleCompose(ev UiEvent) EventResult {
     if ev.Key == Key.Up && plainNavigation(ev) && composer.OnFirstLine() {
+      conversation.SelectNewest()
       focusHistory()
-      conversation.Move(-1)
       return EventResult.Handled
     }
     let result = composer.Handle(ev)
@@ -399,8 +399,10 @@ internal open class TgtuiView : Column {
     }
     if forwardPicking {
       footer.LeftText = "↑/↓ pick   Enter forward"
-      footer.CenterText = "Esc cancel"
-      footer.RightText = "Dialogs"
+      var summary = "message"
+      if let message = forwardMessage { summary = message.Text.Replace("\n", " ↵ ") }
+      footer.CenterText = "Forward: " + CellText.Clip(summary, 24)
+      footer.RightText = "Esc cancel"
       return
     }
     if dialogs.HasFocus {

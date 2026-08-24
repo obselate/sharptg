@@ -22,6 +22,7 @@ internal class MessageActions {
   private var theme TgtuiTheme
   private var root Overlay
   private var panel Column
+  private var preview Label
   private var list ListView
   private var choose Button
   private var close Button
@@ -43,6 +44,7 @@ internal class MessageActions {
     actions = List[MessageAction]()
     message = nil
     onChosen = nil
+    preview = Label{ Style: theme.Muted }
     list = ListView()
     list.Height = CellLength.Cells(1)
     list.SelectionMarker = ""
@@ -58,7 +60,7 @@ internal class MessageActions {
       ShowBorder: true,
       Title: "Message",
       Style: theme.Panel,
-      Children: { list, choose, close },
+      Children: { preview, list, choose, close },
     }
     root = Overlay{
       Content: panel,
@@ -72,6 +74,9 @@ internal class MessageActions {
 
   internal func Open(source TelegramMessage, canReply bool) {
     message = source
+    var summary = source.Text.Replace("\n", " ↵ ")
+    if source.Author != "" { summary = source.Author + ": " + summary }
+    preview.Text = "▶ " + CellText.Clip(summary, 34)
     actions.Clear()
     if canReply { actions.Add(MessageAction(MessageActionKind.Reply, "↩ Reply", "")) }
     actions.Add(MessageAction(MessageActionKind.Forward, "↗ Forward", ""))
@@ -83,7 +88,7 @@ internal class MessageActions {
     list.Items = items
     list.SelectedIndex = 0
     list.Height = CellLength.Cells(Math.Max(1, actions.Count))
-    panel.Height = CellLength.Cells(actions.Count + 6)
+    panel.Height = CellLength.Cells(actions.Count + 7)
     root.IsVisible = true
     root.Focus(list)
   }

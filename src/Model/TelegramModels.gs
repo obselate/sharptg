@@ -41,6 +41,7 @@ internal class TelegramMessage {
   internal var ReplyText string
   internal var ReplyToId int64
   internal var LinkPreview TelegramLinkPreview?
+  internal var LinkPreviewRequested bool
 
   public init(id string, author string, text string, time string, outgoing bool) {
     Id = id
@@ -55,6 +56,7 @@ internal class TelegramMessage {
     ReplyText = ""
     ReplyToId = 0
     LinkPreview = nil
+    LinkPreviewRequested = false
   }
 }
 

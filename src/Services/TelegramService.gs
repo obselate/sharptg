@@ -16,6 +16,7 @@ internal class TelegramService {
   private var knownChats Dictionary[string, TelegramChat]
   private var users Dictionary[int64, string]
   private var pendingReplies Dictionary[string, TelegramMessage]
+  private var pendingPreviews Dictionary[string, TelegramMessage]
   private var auth AuthState
   private var selectedIndex int32
   private var selectedOpen bool
@@ -61,6 +62,7 @@ internal class TelegramService {
     knownChats = Dictionary[string, TelegramChat]()
     users = Dictionary[int64, string]()
     pendingReplies = Dictionary[string, TelegramMessage]()
+    pendingPreviews = Dictionary[string, TelegramMessage]()
     auth = AuthState()
     selectedIndex = 0
     selectedOpen = true
@@ -129,6 +131,7 @@ internal class TelegramService {
       let content = JsonObject()
       content["@type"] = "inputMessageText"
       content["text"] = formatted
+      content["link_preview_options"] = enabledLinkPreviewOptions()
       content["clear_draft"] = true
       let request = JsonObject()
       request["@type"] = "sendMessage"
@@ -341,6 +344,10 @@ internal class TelegramService {
         processHistory(root)
         return
       }
+      if kind == "linkPreview" {
+        processLinkPreview(root)
+        return
+      }
       if kind == "message" {
         processReply(root)
         return
@@ -508,6 +515,11 @@ internal class TelegramService {
     }
     if extra.StartsWith("reply:") {
       pendingReplies.Remove(extra)
+      return
+    }
+    if extra.StartsWith("preview:") {
+      pendingPreviews.Remove(extra)
+      requestMissingPreviewsForOpenChat()
       return
     }
     if auth.Phase != AuthPhase.Ready { fail(jsonString(root, "message")) }
@@ -712,6 +724,7 @@ internal class TelegramService {
       index = index + 1
     }
     resolveReplies(chat)
+    requestMissingPreviews(chat)
     markRead(chat)
     if added == 0 && fromMessageId == 0 && page == 0 {
       requestHistory(chatId, 0, 1)
@@ -817,6 +830,7 @@ internal class TelegramService {
     if chatId == openChatId && !hasMessage(chat, message.TdId) {
       chat.Messages.Add(message)
       resolveReplies(chat)
+      requestMissingPreviews(chat)
       markRead(chat)
     }
     applyLastMessage(chat, root)
@@ -830,7 +844,10 @@ internal class TelegramService {
     let oldId = jsonInt64(root, "old_message_id")
     removeMessage(chat, oldId)
     let message = convertMessage(source, chat)
-    if chat.TdId == openChatId && !hasMessage(chat, message.TdId) { chat.Messages.Add(message) }
+    if chat.TdId == openChatId && !hasMessage(chat, message.TdId) {
+      chat.Messages.Add(message)
+      requestMissingPreviews(chat)
+    }
     applyLastMessage(chat, source)
     rebuildChats()
     changed()
@@ -844,6 +861,7 @@ internal class TelegramService {
       if message.TdId == messageId {
         message.Text = contentText(content)
         message.LinkPreview = linkPreview(content)
+        requestMissingPreviews(chat)
         break
       }
     }
@@ -1034,6 +1052,10 @@ internal class TelegramService {
     if !content.TryGetProperty("link_preview", out var source) || source.ValueKind != JsonValueKind.Object {
       return nil
     }
+    return parseLinkPreview(source)
+  }
+
+  private func parseLinkPreview(source JsonElement) TelegramLinkPreview? {
     let preview = TelegramLinkPreview()
     preview.Url = jsonString(source, "url")
     preview.DisplayUrl = jsonString(source, "display_url")
@@ -1055,6 +1077,68 @@ internal class TelegramService {
         return nil
       }
     return preview
+  }
+
+  private func processLinkPreview(root JsonElement) {
+    let extra = jsonString(root, "@extra")
+    if !pendingPreviews.TryGetValue(extra, out var message) { return }
+    pendingPreviews.Remove(extra)
+    message.LinkPreview = parseLinkPreview(root)
+    requestMissingPreviewsForOpenChat()
+    changed()
+  }
+
+  private func requestMissingPreviewsForOpenChat() {
+    guard let chat = findChat(openChatId) else { return }
+    requestMissingPreviews(chat)
+  }
+
+  private func requestMissingPreviews(chat TelegramChat) {
+    if demoMode || chat.TdId != openChatId { return }
+    var index = chat.Messages.Count - 1
+    while index >= 0 && pendingPreviews.Count < 2 {
+      let message = chat.Messages[index]
+      if message.LinkPreview == nil && hasWebLink(message.Text) {
+        requestLinkPreview(chat, message)
+      }
+      index = index - 1
+    }
+  }
+
+  private func requestLinkPreview(chat TelegramChat, message TelegramMessage) {
+    if chat.TdId == 0 || message.TdId == 0 { return }
+    let chatId = chat.TdId.ToString(CultureInfo.InvariantCulture)
+    let messageId = message.TdId.ToString(CultureInfo.InvariantCulture)
+    let key = "preview:" + chatId + ":" + messageId
+    if message.LinkPreviewRequested { return }
+    message.LinkPreviewRequested = true
+    pendingPreviews[key] = message
+    let text = JsonObject()
+    text["@type"] = "formattedText"
+    text["text"] = message.Text
+    text["entities"] = JsonArray()
+    let request = JsonObject()
+    request["@type"] = "getLinkPreview"
+    request["@extra"] = key
+    request["text"] = text
+    request["link_preview_options"] = enabledLinkPreviewOptions()
+    send(request.ToJsonString())
+  }
+
+  private func enabledLinkPreviewOptions() JsonObject {
+    let options = JsonObject()
+    options["@type"] = "linkPreviewOptions"
+    options["is_disabled"] = false
+    options["url"] = ""
+    options["force_small_media"] = false
+    options["force_large_media"] = false
+    options["show_above_text"] = false
+    return options
+  }
+
+  private func hasWebLink(text string) bool {
+    let value = text.ToLowerInvariant()
+    return value.Contains("https://") || value.Contains("http://") || value.Contains("www.")
   }
 
   private func linkPreviewType(kind string) string {

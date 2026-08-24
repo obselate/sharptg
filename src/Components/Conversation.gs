@@ -74,6 +74,10 @@ internal open class Conversation : Box {
     selected = Math.Max(0, Math.Min(messages.Count - 1, selected + delta))
   }
 
+  internal func SelectNewest() {
+    selected = messages.Count - 1
+  }
+
   protected override func Render(screen Screen, bounds CellRect, style Style) {
     screen.Fill(bounds, theme.Canvas)
     if bounds.WidthCells < 12 || bounds.HeightRows < 2 { return }
@@ -180,6 +184,15 @@ internal open class Conversation : Box {
       } else {
         let tail = Style{ Foreground: bubbleStyle.Background, Background: theme.Canvas.Background }
         screen.Write(column - 1, row, "", tail)
+      }
+      if focused && index == selected {
+        let markerColumn = message.Outgoing ? column - 2 : column - 3
+        let marker = Style{
+          Foreground: theme.AccentBlue.Foreground,
+          Background: theme.Canvas.Background,
+          Attributes: TextAttributes.Bold,
+        }
+        screen.Write(markerColumn, top, "▶", marker)
       }
       row = top - 2
       index = index - 1

@@ -16,7 +16,7 @@ This repository currently contains the first runnable vertical slice:
 - recent message history, live message updates, read receipts, multiline text, replies, and forwarding
 - OG link previews with site, type, title, description, author, and URL
 
-Folder tabs, media previews, and message actions remain to be ported.
+Terminal media rendering remains deferred.
 
 ## Run
 
@@ -44,7 +44,7 @@ The offline sample remains available with `--demo`.
 
 Phone login is the default. Choose `QR login` before submitting a phone number to scan with Telegram. Use `Use phone` to cancel a pending QR login. Press `Ctrl+Y` on the QR screen to copy its login link through the terminal clipboard protocol.
 
-Use `Tab` and `Shift+Tab` to cycle dialogs, compose, and history. In compose, `Enter` sends, `Shift+Enter` adds a line, and `Up` enters history from the first line. In history, use `Up` and `Down` to select a message and `Enter` to reply, forward, or open a link. `Esc` returns toward dialogs, `Ctrl+B` toggles the sidebar, and `Ctrl+Q` quits.
+Use `Tab` and `Shift+Tab` to cycle dialogs, compose, and history. In compose, `Enter` sends, `Shift+Enter` adds a line, and `Up` selects the newest history message from the first line. In history, use `Up` and `Down` to move the `▶` selection and `Enter` to reply, forward, or open a link. `Esc` returns toward dialogs, `Ctrl+B` toggles the sidebar, and `Ctrl+Q` quits.
 
 ## Verify
 
