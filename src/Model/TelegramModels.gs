@@ -2,6 +2,8 @@ package Tgtui
 
 import System.Collections.Generic
 
+internal enum TelegramConnectionState { Connected; Reconnecting; Disconnected }
+
 internal class TelegramLinkPreview {
   internal var Url string
   internal var DisplayUrl string
@@ -37,6 +39,7 @@ internal class TelegramMessage {
   internal var Read bool
   internal var ReplyAuthor string
   internal var ReplyText string
+  internal var ReplyToId int64
   internal var LinkPreview TelegramLinkPreview?
 
   public init(id string, author string, text string, time string, outgoing bool) {
@@ -50,6 +53,7 @@ internal class TelegramMessage {
     Read = outgoing
     ReplyAuthor = ""
     ReplyText = ""
+    ReplyToId = 0
     LinkPreview = nil
   }
 }

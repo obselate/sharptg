@@ -21,6 +21,10 @@ internal class TgtuiChecks {
       failures = failures + expect(selected.Preview == "compiler-grounded hello", "send refreshes preview")
       service.Send("   ")
       failures = failures + expect(selected.Messages.Count == before + 1, "blank send ignored")
+      service.Deselect()
+      failures = failures + expect(service.SelectedChat == nil, "deselect closes chat")
+      service.Select(2)
+      failures = failures + expect(service.SelectedChat != nil, "select reopens chat")
       let qr = QrCodeView(TgtuiTheme())
       qr.Text = "tg://login?token=tgtui-selfcheck"
       failures = failures + expect(qr.ModuleSize > 0, "QR encoding")

@@ -76,11 +76,11 @@ internal open class DialogList : Box {
 
   protected override func Render(screen Screen, bounds CellRect, style Style) {
     screen.Fill(bounds, theme.Sidebar)
-    screen.DrawBorder(Bounds, HasFocus ? theme.Accent : theme.Muted)
+    screen.DrawBorder(Bounds, HasFocus ? theme.Accent : theme.Border)
     if bounds.WidthCells < 8 || bounds.HeightRows < 2 { return }
     let activeTab = Style{
       Foreground: Color.Rgb("f4f7fc"),
-      Background: Color.Rgb("438fdf"),
+      Background: Color.Rgb("409eff"),
       Attributes: TextAttributes.Bold,
     }
     screen.WriteClipped(bounds, 2, 0, " All ", archive ? theme.Muted : activeTab)
@@ -131,19 +131,14 @@ internal open class DialogList : Box {
         let badge = " " + chat.Unread.ToString() + " "
         let badgeStyle = Style{
           Foreground: Color.Rgb("101722"),
-          Background: chat.Muted ? Color.Rgb("77839a") : Color.Rgb("55b7ff"),
+          Background: chat.Muted ? Color.Rgb("646e82") : Color.Rgb("409eff"),
           Attributes: TextAttributes.Bold,
         }
         let badgeWidth = CellText.MeasureWidth(badge)
         screen.Write(bounds.Column + bounds.WidthCells - badgeWidth - 1, row + 1, badge, badgeStyle)
       }
       let separatorRow = row + 2
-      screen.Fill(CellRect{
-        Column: bounds.Column,
-        Row: separatorRow,
-        WidthCells: bounds.WidthCells,
-        HeightRows: 1,
-      }, theme.Canvas)
+      screen.Write(bounds.Column, separatorRow, "".PadLeft(bounds.WidthCells, '─'), theme.Border)
       index = index + 1
       row = row + 3
     }

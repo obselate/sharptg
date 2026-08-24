@@ -8,12 +8,12 @@ This repository currently contains the first runnable vertical slice:
 - responsive two-pane Telegram layout
 - three-row dialog entries with unread, mute, and pin state
 - bottom-aligned incoming and outgoing message bubbles
-- Powerline bubble tails, reply context, timestamps, and receipts
+- Powerline bubble tails, reply context, OG link previews, timestamps, and receipts
 - keyboard and mouse chat selection
 - functional composer with an offline sample service
 - native TDLib JSON authorization through QR, phone, code, and cloud password states
 - live main and archive chat lists with TDLib ordering and unread state
-- recent message history, live message updates, read receipts, and text sending
+- recent message history, live message updates, read receipts, multiline text, replies, and forwarding
 - OG link previews with site, type, title, description, author, and URL
 
 Folder tabs, media previews, and message actions remain to be ported.
@@ -44,7 +44,7 @@ The offline sample remains available with `--demo`.
 
 Phone login is the default. Choose `QR login` before submitting a phone number to scan with Telegram. Use `Use phone` to cancel a pending QR login. Press `Ctrl+Y` on the QR screen to copy its login link through the terminal clipboard protocol.
 
-Use `Tab` to switch between the chat list and composer. `Up` and `Down` select chats only while the chat list is focused. Use `Enter` to open or send, `Ctrl+B` to toggle the sidebar or switch panes, and `Ctrl+Q` to quit.
+Use `Tab` and `Shift+Tab` to cycle dialogs, compose, and history. In compose, `Enter` sends, `Shift+Enter` adds a line, and `Up` enters history from the first line. In history, use `Up` and `Down` to select a message and `Enter` to reply, forward, or open a link. `Esc` returns toward dialogs, `Ctrl+B` toggles the sidebar, and `Ctrl+Q` quits.
 
 ## Verify
 

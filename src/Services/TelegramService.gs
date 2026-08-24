@@ -15,8 +15,10 @@ internal class TelegramService {
   private var chats List[TelegramChat]
   private var knownChats Dictionary[string, TelegramChat]
   private var users Dictionary[int64, string]
+  private var pendingReplies Dictionary[string, TelegramMessage]
   private var auth AuthState
   private var selectedIndex int32
+  private var selectedOpen bool
   private var revision int32
   private var clientId int32
   private var apiId int32
@@ -29,6 +31,8 @@ internal class TelegramService {
   private var chatsLoading bool
   private var messagesLoading bool
   private var connectionText string
+  private var connectionState TelegramConnectionState
+  private var accountName string
   private var openChatId int64
   private var pendingChatLoads int32
   private var demoMode bool
@@ -38,7 +42,7 @@ internal class TelegramService {
   internal prop HasChats bool -> chats.Count > 0
   internal prop SelectedChat TelegramChat? {
     get {
-      if !HasChats { return nil }
+      if !HasChats || !selectedOpen { return nil }
       return chats[selectedIndex]
     }
   }
@@ -48,14 +52,18 @@ internal class TelegramService {
   internal prop ChatsLoading bool -> chatsLoading
   internal prop MessagesLoading bool -> messagesLoading
   internal prop ConnectionText string -> connectionText
+  internal prop ConnectionState TelegramConnectionState -> connectionState
+  internal prop AccountName string -> accountName
 
   public init(app App, demo bool) {
     this.app = app
     chats = List[TelegramChat]()
     knownChats = Dictionary[string, TelegramChat]()
     users = Dictionary[int64, string]()
+    pendingReplies = Dictionary[string, TelegramMessage]()
     auth = AuthState()
     selectedIndex = 0
+    selectedOpen = true
     revision = 1
     clientId = 0
     apiId = 0
@@ -68,6 +76,8 @@ internal class TelegramService {
     chatsLoading = false
     messagesLoading = false
     connectionText = "Connecting"
+    connectionState = TelegramConnectionState.Reconnecting
+    accountName = ""
     openChatId = 0
     pendingChatLoads = 0
     demoMode = demo
@@ -77,22 +87,38 @@ internal class TelegramService {
       auth.Phase = AuthPhase.Ready
       auth.Hint = "Demo session"
       connectionText = "Demo session"
+      connectionState = TelegramConnectionState.Connected
+      accountName = "Sam"
       return
     }
     start()
   }
 
   internal func Select(index int32) {
-    if index < 0 || index >= chats.Count || index == selectedIndex { return }
+    if index < 0 || index >= chats.Count { return }
+    if index == selectedIndex && selectedOpen { return }
     selectedIndex = index
+    selectedOpen = true
     if demoMode { chats[index].Unread = 0 }
     openSelectedChat()
     changed()
   }
 
+  internal func Deselect() {
+    if !selectedOpen { return }
+    selectedOpen = false
+    if !demoMode { closeOpenChat() }
+    changed()
+  }
+
   internal func Send(text string) {
-    let clean = text.Trim()
-    if clean == "" || !HasChats { return }
+    Send(text, 0)
+  }
+
+  internal func Send(text string, replyToId int64) {
+    var clean = text.Replace("\r", "")
+    while clean.EndsWith("\n") { clean = clean.Substring(0, clean.Length - 1) }
+    if clean.Trim() == "" || !HasChats { return }
     guard let chat = SelectedChat else { return }
     if !demoMode {
       if !chat.CanSend || chat.TdId == 0 { return }
@@ -107,6 +133,12 @@ internal class TelegramService {
       let request = JsonObject()
       request["@type"] = "sendMessage"
       request["chat_id"] = chat.TdId
+      if replyToId != 0 {
+        let reply = JsonObject()
+        reply["@type"] = "inputMessageReplyToMessage"
+        reply["message_id"] = replyToId
+        request["reply_to"] = reply
+      }
       request["input_message_content"] = content
       send(request.ToJsonString())
       return
@@ -117,10 +149,46 @@ internal class TelegramService {
       clean,
       DateTime.Now.ToString("HH:mm"),
       true)
+    if replyToId != 0 {
+      for source in chat.Messages {
+        if source.TdId == replyToId || source.Id == replyToId.ToString() {
+          message.ReplyToId = replyToId
+          message.ReplyAuthor = source.Outgoing ? "you" : source.Author
+          message.ReplyText = source.Text
+          break
+        }
+      }
+    }
     chat.Messages.Add(message)
     chat.Preview = clean
     chat.Time = message.Time
     changed()
+  }
+
+  internal func Forward(message TelegramMessage, sourceChatId int64, destinationIndex int32) {
+    if destinationIndex < 0 || destinationIndex >= chats.Count { return }
+    let destination = chats[destinationIndex]
+    if demoMode {
+      let copy = TelegramMessage("local-" + revision.ToString(), message.Author, message.Text,
+        DateTime.Now.ToString("HH:mm"), true)
+      copy.LinkPreview = message.LinkPreview
+      destination.Messages.Add(copy)
+      destination.Preview = message.Text
+      destination.Time = copy.Time
+      changed()
+      return
+    }
+    if message.TdId == 0 || sourceChatId == 0 || destination.TdId == 0 || !destination.CanSend { return }
+    let ids = JsonArray()
+    ids.Add(JsonNode.Parse(message.TdId.ToString(CultureInfo.InvariantCulture)))
+    let request = JsonObject()
+    request["@type"] = "forwardMessages"
+    request["chat_id"] = destination.TdId
+    request["from_chat_id"] = sourceChatId
+    request["message_ids"] = ids
+    request["send_copy"] = true
+    request["remove_caption"] = false
+    send(request.ToJsonString())
   }
 
   internal func SetArchive(value bool) {
@@ -273,6 +341,10 @@ internal class TelegramService {
         processHistory(root)
         return
       }
+      if kind == "message" {
+        processReply(root)
+        return
+      }
       if kind == "chat" {
         upsertChat(root)
         return
@@ -374,6 +446,8 @@ internal class TelegramService {
       beginChatSync()
       changed()
     } else if kind == "authorizationStateClosed" {
+      connectionState = TelegramConnectionState.Disconnected
+      connectionText = "Disconnected"
       if resettingPhone && !stopping {
         resettingPhone = false
         auth.Phase = AuthPhase.Starting
@@ -391,6 +465,7 @@ internal class TelegramService {
 
   private func beginChatSync() {
     connectionText = "Connected"
+    connectionState = TelegramConnectionState.Connected
     chatsLoading = true
     pendingChatLoads = 2
     requestChatList(false)
@@ -431,6 +506,10 @@ internal class TelegramService {
       changed()
       return
     }
+    if extra.StartsWith("reply:") {
+      pendingReplies.Remove(extra)
+      return
+    }
     if auth.Phase != AuthPhase.Ready { fail(jsonString(root, "message")) }
   }
 
@@ -439,14 +518,16 @@ internal class TelegramService {
     let kind = jsonString(state, "@type")
     if kind == "connectionStateReady" {
       connectionText = "Connected"
-    } else if kind == "connectionStateConnecting" {
-      connectionText = "Connecting"
-    } else if kind == "connectionStateUpdating" {
-      connectionText = "Updating"
+      connectionState = TelegramConnectionState.Connected
+    } else if reconnecting(kind) {
+      connectionText = "Reconnecting"
+      connectionState = TelegramConnectionState.Reconnecting
     } else if kind == "connectionStateWaitingForNetwork" {
-      connectionText = "Waiting for network"
+      connectionText = "Disconnected"
+      connectionState = TelegramConnectionState.Disconnected
     } else {
-      connectionText = "Connecting"
+      connectionText = "Reconnecting"
+      connectionState = TelegramConnectionState.Reconnecting
     }
     changed()
   }
@@ -516,7 +597,7 @@ internal class TelegramService {
   }
 
   private func rebuildChats() {
-    let selectedId = if let selected = SelectedChat { selected.Id } else { "" }
+    let selectedId = selectedIndex >= 0 && selectedIndex < chats.Count ? chats[selectedIndex].Id : ""
     chats.Clear()
     for chat in knownChats.Values {
       let order = showArchive ? chat.ArchiveOrder : chat.MainOrder
@@ -536,7 +617,7 @@ internal class TelegramService {
         index = index + 1
       }
     }
-    if HasChats {
+    if HasChats && selectedOpen {
       openSelectedChat()
     } else if openChatId != 0 {
       closeOpenChat()
@@ -707,6 +788,7 @@ internal class TelegramService {
     var name = (first + " " + last).Trim()
     if name == "" { name = "User" }
     users[id] = name
+    if jsonString(root, "@extra") == "me" { accountName = name }
     for chat in knownChats.Values {
       for message in chat.Messages {
         if message.SenderId == id { message.Author = name }
@@ -810,6 +892,7 @@ internal class TelegramService {
     if root.TryGetProperty("reply_to", out var reply) {
       let replyId = jsonInt64(reply, "message_id")
       if replyId != 0 {
+        message.ReplyToId = replyId
         message.ReplyText = replyId.ToString(CultureInfo.InvariantCulture)
         message.ReplyAuthor = "Reply"
       }
@@ -828,8 +911,40 @@ internal class TelegramService {
           break
         }
       }
+      if message.ReplyAuthor == "Reply" { requestReply(chat, message) }
     }
   }
+
+  private func requestReply(chat TelegramChat, message TelegramMessage) {
+    if chat.TdId == 0 || message.TdId == 0 { return }
+    let chatId = chat.TdId.ToString(CultureInfo.InvariantCulture)
+    let messageId = message.TdId.ToString(CultureInfo.InvariantCulture)
+    let extra = "reply:" + chatId + ":" + messageId
+    if pendingReplies.ContainsKey(extra) { return }
+    pendingReplies[extra] = message
+    let request = JsonObject()
+    request["@type"] = "getRepliedMessage"
+    request["@extra"] = extra
+    request["chat_id"] = chat.TdId
+    request["message_id"] = message.TdId
+    send(request.ToJsonString())
+  }
+
+  private func processReply(root JsonElement) {
+    let extra = jsonString(root, "@extra")
+    if !pendingReplies.TryGetValue(extra, out var target) { return }
+    pendingReplies.Remove(extra)
+    let sender = senderId(root)
+    var author = jsonBool(root, "is_outgoing") ? "you" : "message"
+    if users.TryGetValue(sender, out var name) { author = name }
+    target.ReplyAuthor = author
+    target.ReplyText = messagePreview(root)
+    changed()
+  }
+
+  private func reconnecting(kind string) bool ->
+  kind == "connectionStateConnecting" || kind == "connectionStateConnectingToProxy"
+    || kind == "connectionStateUpdating"
 
   private func markRead(chat TelegramChat) {
     if chat.TdId != openChatId || chat.Messages.Count == 0 { return }

@@ -24,8 +24,8 @@ internal open class ConversationHeader : Box {
   }
 
   internal func Clear() {
-    title = "No chats"
-    count = 0
+    title = "Select a chat"
+    count = -1
     online = false
   }
 
@@ -33,11 +33,13 @@ internal open class ConversationHeader : Box {
     screen.Fill(bounds, theme.Header)
     if bounds.HeightRows == 0 { return }
     screen.Write(bounds.Column + 2, bounds.Row, CellText.Clip(title, bounds.WidthCells - 16), theme.Header)
-    let countText = count.ToString() + " msgs"
-    screen.Write(bounds.Column + bounds.WidthCells - CellText.MeasureWidth(countText) - 2, bounds.Row, countText, theme.Muted)
+    if count >= 0 {
+      let countText = count.ToString() + " msgs"
+      screen.Write(bounds.Column + bounds.WidthCells - CellText.MeasureWidth(countText) - 2, bounds.Row, countText, theme.Muted)
+    }
     if bounds.HeightRows > 1 {
-      let presence = online ? "● online" : "last seen recently"
-      screen.Write(bounds.Column + 2, bounds.Row + 1, presence, online ? theme.Accent : theme.Muted)
+      let separator = "".PadLeft(bounds.WidthCells, '─')
+      screen.Write(bounds.Column, bounds.Row + 1, separator, theme.Border)
     }
   }
 }
