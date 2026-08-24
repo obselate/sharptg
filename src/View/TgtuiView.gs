@@ -1,11 +1,13 @@
 package Tgtui
 
 import System
+import System.Collections.Generic
 import System.Diagnostics
 import SharpTui
 
 internal open class TgtuiView : Column {
   private let NarrowBreakpoint int32 = 70
+  private let CompactFooterBreakpoint int32 = 100
   private var app App
   private var service TelegramService
   private var theme TgtuiTheme
@@ -19,8 +21,6 @@ internal open class TgtuiView : Column {
   private var sidebar Column
   private var divider Divider
   private var chat Column
-  private var composeFocus ListView
-  private var historyFocus ListView
   private var actions MessageActions
   private var revision int32
   private var narrow bool
@@ -48,15 +48,13 @@ internal open class TgtuiView : Column {
     footer = StatusBar{
       Height: CellLength.Cells(1),
       Style: theme.FooterText,
-      LeftText: "↑/↓ move   Enter send",
-      CenterText: "Tab cycle",
-      RightText: "Ctrl+Q quit",
     }
     dialogs = DialogList(theme)
     dialogs.GrowWeight = 1
     header = ConversationHeader(theme)
     conversation = Conversation(theme)
-    composer = Composer(theme)
+    composer = Composer(theme, app.Clipboard)
+    composer.OnSubmit = text -> send(text)
     sidebar = Column{
       Width: CellLength.Cells(34),
       Style: theme.Sidebar,
@@ -69,8 +67,6 @@ internal open class TgtuiView : Column {
       Children: { header, conversation, composer },
     }
     divider = Divider(theme.Header)
-    composeFocus = ListView{ Width: CellLength.Cells(0), Height: CellLength.Cells(0) }
-    historyFocus = ListView{ Width: CellLength.Cells(0), Height: CellLength.Cells(0) }
     actions = MessageActions(theme)
     actions.OnChosen = action -> chooseAction(action)
     body = Row{
@@ -82,8 +78,6 @@ internal open class TgtuiView : Column {
     Children.Add(status)
     Children.Add(body)
     Children.Add(footer)
-    Children.Add(composeFocus)
-    Children.Add(historyFocus)
     Children.Add(actions.Root)
     sync()
     focusCompose()
@@ -92,21 +86,12 @@ internal open class TgtuiView : Column {
   protected override func PrepareLayout() {
     let selected = dialogs.ConsumeSelection()
     if selected >= 0 { service.Select(selected) }
+    let tab = dialogs.ConsumeTab()
+    if tab >= 0 { service.SetChatList(tab) }
     sync()
     composer.RefreshHeight()
     applyResponsive(Bounds.WidthCells)
-    composer.SetFocused(composeFocus.IsFocused)
-    conversation.SetFocused(historyFocus.IsFocused)
     updateFooter()
-  }
-
-  protected override func Render(screen Screen, bounds CellRect, style Style) {
-    applyResponsive(bounds.WidthCells)
-    let height = Math.Max(0, screen.Size.HeightRows - status.Bounds.HeightRows - footer.Bounds.HeightRows)
-    if body.Bounds.HeightRows != height {
-      body.Height = CellLength.Cells(height)
-      app.RequestDraw()
-    }
   }
 
   protected override func Accept(ev UiEvent) EventResult {
@@ -120,17 +105,13 @@ internal open class TgtuiView : Column {
       escapeSection()
       return EventResult.Handled
     }
-    if ev.Kind == UiEventKind.Mouse {
-      let result = handleMouse(ev)
-      if result != EventResult.Continue { return result }
-    }
     if dialogs.HasFocus {
       return handleDialogs(ev)
     }
-    if historyFocus.IsFocused {
+    if conversation.HasFocus {
       return handleHistory(ev)
     }
-    if composeFocus.IsFocused {
+    if composer.HasFocus {
       return handleCompose(ev)
     }
     return EventResult.Continue
@@ -138,20 +119,18 @@ internal open class TgtuiView : Column {
 
   private func handleDialogs(ev UiEvent) EventResult {
     if plainNavigation(ev) && (ev.Key == Key.Left || ev.Key == Key.Right) {
-      service.SetArchive(ev.Key == Key.Right)
-      sync()
-      return EventResult.Handled
-    }
-    if plainNavigation(ev) && (ev.Key == Key.Up || ev.Key == Key.Down) {
-      service.Select(dialogs.Move(ev.Key == Key.Up ? -1 : 1))
-      sync()
+      if dialogs.MoveTab(ev.Key == Key.Right ? 1 : -1) {
+        let tab = dialogs.ConsumeTab()
+        if tab >= 0 { service.SetChatList(tab) }
+        sync()
+      }
       return EventResult.Handled
     }
     if ev.Key == Key.Enter {
+      service.Select(dialogs.SelectedIndex)
       if forwardPicking {
         completeForward()
       } else {
-        service.Select(service.SelectedIndex)
         sync()
         if narrow { dialogsVisible = false }
         focusCompose()
@@ -162,10 +141,6 @@ internal open class TgtuiView : Column {
   }
 
   private func handleHistory(ev UiEvent) EventResult {
-    if plainNavigation(ev) && (ev.Key == Key.Up || ev.Key == Key.Down) {
-      conversation.Move(ev.Key == Key.Up ? -1 : 1)
-      return EventResult.Handled
-    }
     if ev.Key == Key.Left && plainNavigation(ev) {
       if narrow { focusCompose() }
       else { dialogs.FocusList() }
@@ -174,6 +149,25 @@ internal open class TgtuiView : Column {
     if ev.Key == Key.Enter {
       if let message = conversation.SelectedMessage {
         actions.Open(message, composer.IsVisible)
+      }
+      return EventResult.Handled
+    }
+    if ev.Key == Key.PageUp && plainNavigation(ev) {
+      service.LoadMoreMessages()
+      sync()
+      return EventResult.Handled
+    }
+    if shortcut(ev, "r", "R") {
+      if composer.IsVisible {
+        if let message = conversation.SelectedMessage {
+          if message.Kind != TelegramMessageKind.Service { startReply(message) }
+        }
+      }
+      return EventResult.Handled
+    }
+    if shortcut(ev, "f", "F") {
+      if let message = conversation.SelectedMessage {
+        if message.Kind != TelegramMessageKind.Service { startForward(message) }
       }
       return EventResult.Handled
     }
@@ -186,61 +180,6 @@ internal open class TgtuiView : Column {
       focusHistory()
       return EventResult.Handled
     }
-    let result = composer.Handle(ev)
-    if result != EventResult.Continue { return result }
-    if ev.Key == Key.Enter && plainNavigation(ev) {
-      let text = composer.Text
-      service.Send(text, composer.ReplyMessageId)
-      if text.Trim() != "" { composer.Clear() }
-      sync()
-      return EventResult.Handled
-    }
-    return EventResult.Continue
-  }
-
-  private func handleMouse(ev UiEvent) EventResult {
-    if dialogs.IsVisible {
-      if ev.Mouse == MouseKind.ScrollUp {
-        service.Select(dialogs.Move(-1))
-        sync()
-        return EventResult.Handled
-      }
-      if ev.Mouse == MouseKind.ScrollDown {
-        service.Select(dialogs.Move(1))
-        sync()
-        return EventResult.Handled
-      }
-      if ev.Mouse == MouseKind.Press && ev.Button == MouseButton.Left && dialogs.ContentBounds.Contains(ev.Position) {
-        let tab = dialogs.SelectTabAt(ev.Position.Column, ev.Position.Row)
-        if tab >= 0 {
-          dialogs.FocusList()
-          service.SetArchive(tab == 1)
-          sync()
-          return EventResult.Handled
-        }
-        let selected = dialogs.SelectAt(ev.Position.Row)
-        if selected >= 0 {
-          service.Select(selected)
-          dialogs.FocusList()
-        }
-        if narrow && selected >= 0 && !forwardPicking {
-          dialogsVisible = false
-          focusCompose()
-        }
-        sync()
-        return EventResult.Handled
-      }
-    }
-    if chat.IsVisible && ev.Mouse == MouseKind.Press && ev.Button == MouseButton.Left {
-      if composer.Bounds.Contains(ev.Position) {
-        focusCompose()
-        return composer.Handle(ev)
-      }
-      if conversation.Bounds.Contains(ev.Position) {
-        focusHistory()
-        return EventResult.Handled
-      }
-    }
     return EventResult.Continue
   }
 
@@ -249,21 +188,31 @@ internal open class TgtuiView : Column {
     actions.Close()
     guard let message = source else { return }
     if action.Kind == MessageActionKind.Reply {
-      composer.StartReply(message)
-      focusCompose()
+      startReply(message)
       return
     }
     if action.Kind == MessageActionKind.Forward {
-      forwardPicking = true
-      forwardMessage = message
-      forwardSourceIndex = service.SelectedIndex
-      forwardSourceChatId = if let chat = service.SelectedChat { chat.TdId } else { 0 }
-      if narrow { dialogsVisible = true }
-      dialogs.FocusList()
+      startForward(message)
       return
     }
     openLink(action.Url)
     focusHistory()
+  }
+
+  private func startReply(message TelegramMessage) {
+    conversation.SelectNewest()
+    composer.StartReply(message)
+    focusCompose()
+  }
+
+  private func startForward(message TelegramMessage) {
+    conversation.SelectNewest()
+    forwardPicking = true
+    forwardMessage = message
+    forwardSourceIndex = service.SelectedIndex
+    forwardSourceChatId = if let chat = service.SelectedChat { chat.TdId } else { 0 }
+    if narrow { dialogsVisible = true }
+    dialogs.FocusList()
   }
 
   private func completeForward() {
@@ -303,11 +252,11 @@ internal open class TgtuiView : Column {
       focusHistory()
       return
     }
-    if historyFocus.IsFocused {
+    if conversation.HasFocus {
       focusCompose()
       return
     }
-    if composeFocus.IsFocused {
+    if composer.HasFocus {
       composer.Clear()
       service.Deselect()
       if narrow { dialogsVisible = true }
@@ -330,33 +279,38 @@ internal open class TgtuiView : Column {
   }
 
   private func focusCompose() {
-    Focus(composeFocus)
-    composer.SetFocused(true)
-    conversation.SetFocused(false)
+    if composer.IsVisible { composer.FocusInput() }
+    else { dialogs.FocusList() }
   }
 
   private func focusHistory() {
-    Focus(historyFocus)
-    composer.SetFocused(false)
-    conversation.SetFocused(true)
+    conversation.FocusList()
+  }
+
+  private func send(text string) {
+    service.Send(text, composer.ReplyMessageId)
+    if text.Trim() != "" {
+      conversation.SelectNewest()
+      composer.Clear()
+    }
+    sync()
   }
 
   private func sync() {
     if revision == service.Revision { return }
     revision = service.Revision
-    dialogs.Update(service.Chats, service.SelectedIndex, service.ShowArchive, service.ChatsLoading)
+    dialogs.Update(service.Chats, service.SelectedIndex, service.ChatListTitles,
+      service.ActiveChatListIndex, service.ChatsLoading)
     status.Update(service.ConnectionState, service.ConnectionText, service.AccountName)
     if let selected = service.SelectedChat {
       header.Update(selected)
       conversation.Update(selected.Messages, service.MessagesLoading)
       composer.IsVisible = selected.CanSend
-      composeFocus.IsVisible = selected.CanSend
       return
     }
     header.Clear()
     conversation.Clear()
     composer.IsVisible = false
-    composeFocus.IsVisible = false
   }
 
   private func applyResponsive(width int32) {
@@ -375,8 +329,6 @@ internal open class TgtuiView : Column {
       chat.Width = CellLength.Auto
       chat.GrowWeight = 1
       chat.IsVisible = !dialogsVisible
-      composeFocus.IsVisible = !dialogsVisible && composer.IsVisible
-      historyFocus.IsVisible = !dialogsVisible
     } else {
       sidebar.Width = CellLength.Cells(34)
       sidebar.GrowWeight = 0
@@ -385,41 +337,151 @@ internal open class TgtuiView : Column {
       chat.Width = CellLength.Auto
       chat.GrowWeight = 1
       chat.IsVisible = true
-      composeFocus.IsVisible = composer.IsVisible
-      historyFocus.IsVisible = true
     }
   }
 
   private func updateFooter() {
+    if Bounds.WidthCells < CompactFooterBreakpoint {
+      updateCompactFooter()
+      return
+    }
     if actions.Root.IsVisible {
-      footer.LeftText = "↑/↓ move   Enter choose"
-      footer.CenterText = "Esc history"
-      footer.RightText = "Actions"
+      setFooter(
+        List[TextRun]{
+          TextRun("↑/↓", theme.FooterKey), TextRun(" move   ", theme.FooterText),
+          TextRun("Enter", theme.FooterKey), TextRun(" choose", theme.FooterText),
+        },
+        List[TextRun]{ TextRun("R/F", theme.FooterKey), TextRun(" reply/fwd", theme.FooterText) },
+        List[TextRun]{
+          TextRun("Esc", theme.FooterKey), TextRun(" history   ", theme.FooterText),
+          TextRun("Actions ", footerRole()),
+        })
       return
     }
     if forwardPicking {
-      footer.LeftText = "↑/↓ pick   Enter forward"
       var summary = "message"
       if let message = forwardMessage { summary = message.Text.Replace("\n", " ↵ ") }
-      footer.CenterText = "Forward: " + CellText.Clip(summary, 24)
-      footer.RightText = "Esc cancel"
+      setFooter(
+        List[TextRun]{
+          TextRun("↑/↓", theme.FooterKey), TextRun(" pick   ", theme.FooterText),
+          TextRun("Enter", theme.FooterKey), TextRun(" forward", theme.FooterText),
+        },
+        List[TextRun]{ TextRun("Forward: " + CellText.Clip(summary, 24), theme.FooterText) },
+        List[TextRun]{ TextRun("Esc", theme.FooterKey), TextRun(" cancel ", theme.FooterText) })
       return
     }
     if dialogs.HasFocus {
-      footer.LeftText = "↑/↓ move   ←/→ lists"
-      footer.CenterText = "Enter open   Tab cycle"
-      footer.RightText = "Dialogs"
+      setFooter(
+        List[TextRun]{
+          TextRun("↑/↓", theme.FooterKey), TextRun(" move   ", theme.FooterText),
+          TextRun("←/→", theme.FooterKey), TextRun(" lists", theme.FooterText),
+        },
+        List[TextRun]{
+          TextRun("Enter", theme.FooterKey), TextRun(" open   ", theme.FooterText),
+          TextRun("Tab", theme.FooterKey), TextRun(" cycle", theme.FooterText),
+        },
+        List[TextRun]{ TextRun("Dialogs ", footerRole()) })
       return
     }
-    if historyFocus.IsFocused {
-      footer.LeftText = "↑/↓ move   Enter reply/fwd"
-      footer.CenterText = "Esc compose   Tab cycle"
-      footer.RightText = "History"
+    if conversation.HasFocus {
+      setFooter(
+        List[TextRun]{
+          TextRun("↑/↓", theme.FooterKey), TextRun(" move   ", theme.FooterText),
+          TextRun("R/F", theme.FooterKey), TextRun(" reply/fwd", theme.FooterText),
+        },
+        List[TextRun]{
+          TextRun("Enter", theme.FooterKey), TextRun(" actions   ", theme.FooterText),
+          TextRun("Tab", theme.FooterKey), TextRun(" cycle", theme.FooterText),
+        },
+        historyFooter())
       return
     }
-    footer.LeftText = "Enter send   ↑ history"
-    footer.CenterText = "⇧Enter new line   Esc dialogs   Tab cycle"
-    footer.RightText = "Compose"
+    setFooter(
+      List[TextRun]{
+        TextRun("Enter", theme.FooterKey), TextRun(" send   ", theme.FooterText),
+        TextRun("↑", theme.FooterKey), TextRun(" history", theme.FooterText),
+      },
+      List[TextRun]{
+        TextRun("⇧Enter", theme.FooterKey), TextRun(" new line   ", theme.FooterText),
+        TextRun("Esc", theme.FooterKey), TextRun(" dialogs   ", theme.FooterText),
+        TextRun("Tab", theme.FooterKey), TextRun(" cycle", theme.FooterText),
+      },
+      List[TextRun]{ TextRun("Compose ", footerRole()) })
+  }
+
+  private func updateCompactFooter() {
+    if actions.Root.IsVisible {
+      setFooter(
+        List[TextRun]{
+          TextRun("↑/↓", theme.FooterKey), TextRun(" move   ", theme.FooterText),
+          TextRun("R/F", theme.FooterKey), TextRun(" direct", theme.FooterText),
+        }, List[TextRun](), List[TextRun]{ TextRun("Actions ", footerRole()) })
+      return
+    }
+    if forwardPicking {
+      setFooter(
+        List[TextRun]{
+          TextRun("↑/↓", theme.FooterKey), TextRun(" pick   ", theme.FooterText),
+          TextRun("Enter", theme.FooterKey), TextRun(" forward", theme.FooterText),
+        }, List[TextRun](),
+        List[TextRun]{ TextRun("Esc", theme.FooterKey), TextRun(" cancel ", theme.FooterText) })
+      return
+    }
+    if dialogs.HasFocus {
+      setFooter(
+        List[TextRun]{
+          TextRun("↑/↓", theme.FooterKey), TextRun(" move   ", theme.FooterText),
+          TextRun("Enter", theme.FooterKey), TextRun(" open", theme.FooterText),
+        }, List[TextRun](), List[TextRun]{ TextRun("Dialogs ", footerRole()) })
+      return
+    }
+    if conversation.HasFocus {
+      setFooter(
+        List[TextRun]{
+          TextRun("↑/↓", theme.FooterKey), TextRun(" move   ", theme.FooterText),
+          TextRun("R/F", theme.FooterKey), TextRun(" act", theme.FooterText),
+        }, List[TextRun](), List[TextRun]{ TextRun("History ", footerRole()) })
+      return
+    }
+    setFooter(
+      List[TextRun]{
+        TextRun("Enter", theme.FooterKey), TextRun(" send   ", theme.FooterText),
+        TextRun("↑", theme.FooterKey), TextRun(" history", theme.FooterText),
+      }, List[TextRun](), List[TextRun]{ TextRun("Compose ", footerRole()) })
+  }
+
+  private func setFooter(left List[TextRun], center List[TextRun], right List[TextRun]) {
+    footer.LeftRuns = left
+    footer.CenterRuns = center
+    footer.RightRuns = right
+  }
+
+  private func footerRole() Style ->
+  Style{
+    Foreground: theme.Accent.Foreground,
+    Background: theme.FooterText.Background,
+    Attributes: TextAttributes.Bold,
+  }
+
+  private func historyFooter() List[TextRun] {
+    let runs = List[TextRun]{ TextRun("History ", footerRole()) }
+    if let message = conversation.SelectedMessage {
+      var summary = message.Text.Replace("\n", " ↵ ")
+      if message.Author != "" { summary = message.Author + ": " + summary }
+      runs.Add(TextRun(CellText.Clip(summary, 18) + " ", theme.FooterText))
+    }
+    return runs
+  }
+
+  private func shortcut(ev UiEvent, lower string, upper string) bool {
+    if ev.Kind != UiEventKind.Key && ev.Kind != UiEventKind.TextInput { return false }
+    if ev.Key != Key.Character || ev.Phase == KeyPhase.Release {
+      return false
+    }
+    if ev.Text != lower && ev.Text != upper { return false }
+    let allowed = int32(KeyModifiers.Shift) | int32(KeyModifiers.CapsLock) |
+    int32(KeyModifiers.NumLock)
+    return (int32(ev.Modifiers) & (int32(0x7fffffff) ^ allowed)) == 0
   }
 
   private func plainNavigation(ev UiEvent) bool {

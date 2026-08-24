@@ -1,0 +1,41 @@
+<Project Sdk="Gsharp.NET.Sdk/0.4.59">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tgtui</RootNamespace>
+    <AssemblyName>sharptg</AssemblyName>
+    <Version>0.7.0</Version>
+    <PublishAot>true</PublishAot>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <IlcFoldIdenticalMethodBodies>true</IlcFoldIdenticalMethodBodies>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <StripSymbols>true</StripSymbols>
+    <SharpTuiProject Condition="'$(SharpTuiProject)' == ''">../sharptui/SharpTui.Framework.gsproj</SharpTuiProject>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(StaticTdLib)' == 'true'">
+    <StaticExecutable>true</StaticExecutable>
+    <StaticOpenSslLinking>true</StaticOpenSslLinking>
+    <LinkStandardCPlusPlusLibrary>true</LinkStandardCPlusPlusLibrary>
+    <TdLibStaticRoot Condition="'$(TdLibStaticRoot)' == ''">/opt/tdlib</TdLibStaticRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Net.Codecrete.QrCodeGenerator" Version="3.1.0" />
+    <PackageReference Include="tdlib.native" Version="1.8.66" Condition="'$(StaticTdLib)' != 'true'" />
+    <ProjectReference Include="$(SharpTuiProject)" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(StaticTdLib)' == 'true'">
+    <DirectPInvoke Include="tdjson" />
+    <DirectPInvoke Include="libc" />
+    <DirectPInvoke Include="libtinfo.so.6" />
+    <NativeLibrary Include="-Wl,--start-group" />
+    <NativeLibrary Include="$(TdLibStaticRoot)/lib/*.a" />
+    <NativeLibrary Include="/usr/lib/libtinfo.a" />
+    <NativeLibrary Include="-Wl,--end-group" />
+  </ItemGroup>
+
+</Project>

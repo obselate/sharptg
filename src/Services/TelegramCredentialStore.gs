@@ -16,12 +16,13 @@ internal class TelegramCredentials {
 internal class TelegramCredentialStore {
   shared {
     internal func Load() TelegramCredentials? {
-      let idText = Environment.GetEnvironmentVariable("TGTUI_API_ID") ?? Environment.GetEnvironmentVariable("TELEGRAM_API_ID") ?? ""
-      let hashText = Environment.GetEnvironmentVariable("TGTUI_API_HASH") ?? Environment.GetEnvironmentVariable("TELEGRAM_API_HASH") ?? ""
+      let idText = Environment.GetEnvironmentVariable("SHARPTG_API_ID") ?? Environment.GetEnvironmentVariable("TGTUI_API_ID") ?? Environment.GetEnvironmentVariable("TELEGRAM_API_ID") ?? ""
+      let hashText = Environment.GetEnvironmentVariable("SHARPTG_API_HASH") ?? Environment.GetEnvironmentVariable("TGTUI_API_HASH") ?? Environment.GetEnvironmentVariable("TELEGRAM_API_HASH") ?? ""
       let environment = Parse(idText, hashText)
       if environment != nil { return environment }
 
-      let path = credentialPath()
+      var path = credentialPath("sharptg")
+      if !File.Exists(path) { path = credentialPath("tgtui") }
       if !File.Exists(path) { return nil }
       let lines = File.ReadAllLines(path)
       if lines.Length < 2 { return nil }
@@ -42,7 +43,7 @@ internal class TelegramCredentialStore {
     }
 
     internal func Save(credentials TelegramCredentials) {
-      let path = credentialPath()
+      let path = credentialPath("sharptg")
       guard let directory = Path.GetDirectoryName(path) else { return }
       Directory.CreateDirectory(directory)
       if !OperatingSystem.IsWindows() {
@@ -66,7 +67,7 @@ internal class TelegramCredentialStore {
       }
     }
 
-    private func credentialPath() string {
+    private func credentialPath(application string) string {
       var root = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME") ?? ""
       if root.Trim() == "" {
         root = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)
@@ -74,7 +75,7 @@ internal class TelegramCredentialStore {
       if root == "" {
         root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config")
       }
-      return Path.Combine(root, "tgtui", "credentials")
+      return Path.Combine(root, application, "credentials")
     }
   }
 }

@@ -158,7 +158,7 @@ internal open class LoginView : Column {
     }
     let header = StatusBar{
       Height: CellLength.Cells(1),
-      LeftText: "tgtui",
+      LeftText: "sharptg",
       CenterText: "Telegram sign in",
       RightText: "",
       Style: theme.Header,

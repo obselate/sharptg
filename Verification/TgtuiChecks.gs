@@ -34,6 +34,8 @@ internal class TgtuiChecks {
       failures = failures + expect(
         TelegramCredentialStore.Parse("123456", "not-a-hash") == nil,
         "invalid credentials rejected")
+      let nativeResult = tdRead(tdExecute("{\"@type\":\"getLogVerbosityLevel\"}"))
+      failures = failures + expect(nativeResult.Contains("verbosity_level"), "TDLib native execute")
       if failures == 0 {
         Console.WriteLine("selfcheck: pass")
         return 0
