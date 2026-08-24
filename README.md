@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/demo.png" alt="SharpTg demo" width="1000">
+</p>
+
 SharpTg is a G# and SharpTUI port of [Sam Pavlovic's C++ tgtui](https://github.com/sampavlovic/tgtui).
 
 This is a SharpTUI framework capability test.
