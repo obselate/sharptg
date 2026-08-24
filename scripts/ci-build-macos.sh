@@ -8,7 +8,6 @@ dotnet publish SharpTg.gsproj \
   -c Release \
   -r osx-arm64 \
   --self-contained true \
-  -p:SharpTuiProject=../sharptui/SharpTui.Framework.gsproj \
   -o build-ci/publish
 
 build-ci/publish/sharptg --selfcheck

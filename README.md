@@ -18,13 +18,12 @@ chmod +x sharptg-linux-x86_64
 Requires Git and the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
 
 ```sh
-git clone https://github.com/obselate/sharptui.git
 git clone https://github.com/obselate/sharptg.git
 cd sharptg
 dotnet run --project SharpTg.gsproj -c Release
 ```
 
-The two repositories must have the same parent directory. See [BUILDING.md](BUILDING.md) for NativeAOT and static Linux builds.
+`SharpTg.gsproj` restores SharpTUI from NuGet. See [BUILDING.md](BUILDING.md) for NativeAOT and static Linux builds.
 
 ## Run
 

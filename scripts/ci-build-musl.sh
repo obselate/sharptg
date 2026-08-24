@@ -49,7 +49,6 @@ dotnet publish SharpTg.gsproj \
   -c Release \
   -r "$runtime" \
   --self-contained true \
-  -p:SharpTuiProject=../sharptui/SharpTui.Framework.gsproj \
   -p:StaticTdLib=true \
   -p:TdLibStaticRoot=/opt/tdlib \
   -o build-ci/publish

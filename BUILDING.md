@@ -4,24 +4,14 @@
 
 - .NET SDK 10
 - Git
-- the SharpTUI source checkout next to this repository
 
-The project restores the G# SDK and managed packages through NuGet.
+The project restores the G# SDK, SharpTUI, and other managed packages through NuGet.
 
 NativeAOT publishing also requires Clang or GCC, a C++ toolchain, and zlib development headers. The static Linux release has more dependencies and is built by the release script.
 
-Place the repositories like this:
-
-```text
-Projects/
-  sharptui/
-  sharptg/
-```
-
-Clone both repositories from their parent directory:
+Clone the repository:
 
 ```bash
-git clone https://github.com/obselate/sharptui.git
 git clone https://github.com/obselate/sharptg.git
 cd sharptg
 ```
@@ -63,9 +53,7 @@ The maintainer release gate builds TDLib 1.8.66 from source against musl, links 
 ```bash
 dotnet-smolrelease \
   --source . \
-  --include-source ../sharptui=deps/sharptui \
   --project SharpTg.gsproj \
-  --property SharpTuiProject=../deps/sharptui/SharpTui.Framework.gsproj \
   --property StaticTdLib=true \
   --property TdLibStaticRoot=/opt/tdlib \
   --abi musl \

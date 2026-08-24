@@ -12,7 +12,6 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
     <StripSymbols>true</StripSymbols>
-    <SharpTuiProject Condition="'$(SharpTuiProject)' == ''">../sharptui/SharpTui.Framework.gsproj</SharpTuiProject>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(StaticTdLib)' == 'true'">
@@ -23,9 +22,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="SharpTui.Framework" Version="0.1.0" />
     <PackageReference Include="Net.Codecrete.QrCodeGenerator" Version="3.1.0" />
     <PackageReference Include="tdlib.native" Version="1.8.66" Condition="'$(StaticTdLib)' != 'true'" />
-    <ProjectReference Include="$(SharpTuiProject)" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(StaticTdLib)' == 'true'">
@@ -37,9 +36,5 @@
     <NativeLibrary Include="/usr/lib/libtinfo.a" />
     <NativeLibrary Include="-Wl,--end-group" />
   </ItemGroup>
-
-  <Target Name="RequireSharpTui" BeforeTargets="PrepareForBuild;_GenerateRestoreProjectPathWalk" Condition="!Exists('$(SharpTuiProject)')">
-    <Error Text="SharpTUI was not found at '$(SharpTuiProject)'. Clone https://github.com/obselate/sharptui next to this repository or set SharpTuiProject to its SharpTui.Framework.gsproj file." />
-  </Target>
 
 </Project>
