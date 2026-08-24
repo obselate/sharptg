@@ -3,12 +3,12 @@
 ## Requirements
 
 - .NET SDK 10
-- Clang or GCC with a C++ toolchain
-- zlib development headers
 - Git
 - the SharpTUI source checkout next to this repository
 
 The project restores the G# SDK and managed packages through NuGet.
+
+NativeAOT publishing also requires Clang or GCC, a C++ toolchain, and zlib development headers. The static Linux release has more dependencies and is built by the release script.
 
 Place the repositories like this:
 
@@ -18,15 +18,15 @@ Projects/
   sharptg/
 ```
 
-Clone SharpTUI if it is not already present:
+Clone both repositories from their parent directory:
 
 ```bash
-git clone https://github.com/obselate/sharptui.git ../sharptui
+git clone https://github.com/obselate/sharptui.git
+git clone https://github.com/obselate/sharptg.git
+cd sharptg
 ```
 
 ## Developer build
-
-From the `sharptg` directory:
 
 ```bash
 dotnet restore SharpTg.gsproj

@@ -2,6 +2,8 @@ name: release
 
 on:
   push:
+    tags:
+      - "*.*.*"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -105,7 +107,7 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.sha }}
-          name: build-${{ github.sha }}
-          body: Automated build of `${{ github.sha }}` on `${{ github.ref_name }}`.
+          tag_name: ${{ github.ref_name }}
+          name: SharpTg ${{ github.ref_name }}
+          body: SharpTg `${{ github.ref_name }}`.
           files: release/*

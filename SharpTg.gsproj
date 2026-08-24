@@ -38,4 +38,8 @@
     <NativeLibrary Include="-Wl,--end-group" />
   </ItemGroup>
 
+  <Target Name="RequireSharpTui" BeforeTargets="PrepareForBuild;_GenerateRestoreProjectPathWalk" Condition="!Exists('$(SharpTuiProject)')">
+    <Error Text="SharpTUI was not found at '$(SharpTuiProject)'. Clone https://github.com/obselate/sharptui next to this repository or set SharpTuiProject to its SharpTui.Framework.gsproj file." />
+  </Target>
+
 </Project>

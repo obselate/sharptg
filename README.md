@@ -2,21 +2,35 @@ SharpTg is a G# and SharpTUI port of [Sam Pavlovic's C++ tgtui](https://github.c
 
 This is a SharpTUI framework capability test.
 
-## Build from source
+## Install
 
-See [BUILDING.md](BUILDING.md) for developer builds, NativeAOT publishing, and the static Linux release procedure.
+Download the build for your platform from [Releases](https://github.com/obselate/sharptg/releases/latest). Release builds are NativeAOT and do not require .NET.
 
-## Run
+On Linux, make the downloaded file executable and run it:
 
 ```sh
+chmod +x sharptg-linux-x86_64
+./sharptg-linux-x86_64
+```
+
+## Build from source
+
+Requires Git and the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
+
+```sh
+git clone https://github.com/obselate/sharptui.git
+git clone https://github.com/obselate/sharptg.git
+cd sharptg
 dotnet run --project SharpTg.gsproj -c Release
 ```
+
+The two repositories must have the same parent directory. See [BUILDING.md](BUILDING.md) for NativeAOT and static Linux builds.
+
+## Run
 
 The application asks for the `api_id` and `api_hash` from `my.telegram.org` on first run. It validates them and saves them in the platform user configuration directory under `sharptg/credentials`, with owner-only permissions on Unix.
 
 Delete that file to change the saved credentials.
-
-`./run.fish` is an optional developer shortcut. The application and published executable do not require Fish.
 
 To provide credentials manually:
 
