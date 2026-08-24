@@ -1022,7 +1022,7 @@ internal class TelegramService {
     request["system_language_code"] = "en"
     request["device_model"] = "Terminal"
     request["system_version"] = Environment.OSVersion.VersionString
-    request["application_version"] = "0.6.0"
+    request["application_version"] = "0.6.1"
     send(request.ToJsonString())
   }
 

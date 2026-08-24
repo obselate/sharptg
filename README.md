@@ -44,7 +44,7 @@ The offline sample remains available with `--demo`.
 
 Phone login is the default. Choose `QR login` before submitting a phone number to scan with Telegram. Use `Use phone` to cancel a pending QR login. Press `Ctrl+Y` on the QR screen to copy its login link through the terminal clipboard protocol.
 
-Use `Up` and `Down` to select chats, `Enter` to send, `Ctrl+B` to toggle the sidebar or switch panes, and `Ctrl+Q` to quit.
+Use `Tab` to switch between the chat list and composer. `Up` and `Down` select chats only while the chat list is focused. Use `Enter` to open or send, `Ctrl+B` to toggle the sidebar or switch panes, and `Ctrl+Q` to quit.
 
 ## Verify
 

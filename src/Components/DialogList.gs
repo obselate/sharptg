@@ -26,7 +26,10 @@ internal open class DialogList : Box {
     }
     Children.Add(focusTarget)
     Style = theme.Sidebar
+    ShowBorder = true
   }
+
+  internal prop HasFocus bool -> focusTarget.IsFocused
 
   internal func Update(items List[TelegramChat], selectedIndex int32, showArchive bool, isLoading bool) {
     chats = items
@@ -73,6 +76,7 @@ internal open class DialogList : Box {
 
   protected override func Render(screen Screen, bounds CellRect, style Style) {
     screen.Fill(bounds, theme.Sidebar)
+    screen.DrawBorder(Bounds, HasFocus ? theme.Accent : theme.Muted)
     if bounds.WidthCells < 8 || bounds.HeightRows < 2 { return }
     let activeTab = Style{
       Foreground: Color.Rgb("f4f7fc"),
@@ -104,7 +108,7 @@ internal open class DialogList : Box {
     var row = bounds.Row + 2
     while index < chats.Count && row + 2 < bounds.Row + bounds.HeightRows {
       let chat = chats[index]
-      let rowStyle = index == selected ? theme.PanelSelected : theme.Panel
+      let rowStyle = index == selected && HasFocus ? theme.PanelSelected : theme.Panel
       screen.Fill(CellRect{
         Column: bounds.Column,
         Row: row,
