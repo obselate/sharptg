@@ -111,7 +111,7 @@ internal open class TgtuiView : Column {
       }
       return EventResult.Handled
     }
-    if narrow && dialogsVisible && (ev.Key == Key.Left || ev.Key == Key.Right) {
+    if narrow && dialogsVisible && plainNavigation(ev) && (ev.Key == Key.Left || ev.Key == Key.Right) {
       service.SetArchive(ev.Key == Key.Right)
       sync()
       return EventResult.Handled
@@ -147,7 +147,7 @@ internal open class TgtuiView : Column {
         return EventResult.Handled
       }
     }
-    if ev.Key == Key.Up || ev.Key == Key.Down {
+    if plainNavigation(ev) && (ev.Key == Key.Up || ev.Key == Key.Down) {
       service.Select(dialogs.Move(ev.Key == Key.Up ? -1 : 1))
       sync()
       return EventResult.Handled
@@ -217,5 +217,10 @@ internal open class TgtuiView : Column {
   private func selectedTitle() string {
     if let selected = service.SelectedChat { return selected.Title }
     return "No chats"
+  }
+
+  private func plainNavigation(ev UiEvent) bool {
+    let locks = int32(KeyModifiers.CapsLock) | int32(KeyModifiers.NumLock)
+    return (int32(ev.Modifiers) & (int32(0x7fffffff) ^ locks)) == 0
   }
 }

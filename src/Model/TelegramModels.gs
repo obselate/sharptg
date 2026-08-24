@@ -2,6 +2,30 @@ package Tgtui
 
 import System.Collections.Generic
 
+internal class TelegramLinkPreview {
+  internal var Url string
+  internal var DisplayUrl string
+  internal var SiteName string
+  internal var Title string
+  internal var Description string
+  internal var Author string
+  internal var TypeLabel string
+  internal var HasMedia bool
+  internal var ShowAboveText bool
+
+  public init() {
+    Url = ""
+    DisplayUrl = ""
+    SiteName = ""
+    Title = ""
+    Description = ""
+    Author = ""
+    TypeLabel = ""
+    HasMedia = false
+    ShowAboveText = false
+  }
+}
+
 internal class TelegramMessage {
   internal var Id string
   internal var TdId int64
@@ -13,6 +37,7 @@ internal class TelegramMessage {
   internal var Read bool
   internal var ReplyAuthor string
   internal var ReplyText string
+  internal var LinkPreview TelegramLinkPreview?
 
   public init(id string, author string, text string, time string, outgoing bool) {
     Id = id
@@ -25,6 +50,7 @@ internal class TelegramMessage {
     Read = outgoing
     ReplyAuthor = ""
     ReplyText = ""
+    LinkPreview = nil
   }
 }
 

@@ -14,8 +14,9 @@ This repository currently contains the first runnable vertical slice:
 - native TDLib JSON authorization through QR, phone, code, and cloud password states
 - live main and archive chat lists with TDLib ordering and unread state
 - recent message history, live message updates, read receipts, and text sending
+- OG link previews with site, type, title, description, author, and URL
 
-Folder tabs, full media previews, and message actions remain to be ported.
+Folder tabs, media previews, and message actions remain to be ported.
 
 ## Run
 

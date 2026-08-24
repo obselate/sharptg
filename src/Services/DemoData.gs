@@ -11,7 +11,17 @@ internal func createDemoChats() List[TelegramChat] {
   mikhail.Messages.Add(TelegramMessage("2", "Mikhail", "thanks brotha", "09:28", false))
   mikhail.Messages.Add(TelegramMessage("3", "Sam", "I made a TUI Telegram client, do you want to have a fake-sounding chat so I can put you on the screenshot?", "00:56", true))
   mikhail.Messages.Add(TelegramMessage("4", "Mikhail", "Yeah sure why not", "00:56", false))
-  mikhail.Messages.Add(TelegramMessage("5", "Sam", "🔗 BANE - FOR YOU\nYouTube · Link 🖼\nBANE - FOR YOU\nBane's For You clip from The Dark Knight Rises\nyoutube.com/watch?v=w9wi0cPrU4U", "00:57", true))
+  let link = TelegramMessage("5", "Sam", "for you", "00:57", true)
+  link.LinkPreview = TelegramLinkPreview{
+    Url: "https://youtube.com/watch?v=w9wi0cPrU4U",
+    DisplayUrl: "youtube.com/watch?v=w9wi0cPrU4U",
+    SiteName: "YouTube",
+    Title: "BANE - FOR YOU",
+    Description: "Bane's For You clip from The Dark Knight Rises",
+    TypeLabel: "Video",
+    HasMedia: true,
+  }
+  mikhail.Messages.Add(link)
   mikhail.Messages.Add(TelegramMessage("6", "Mikhail", "ha, that's a good one!", "00:57", false))
   let reply = TelegramMessage("7", "Sam", "for you", "00:57", true)
   reply.ReplyAuthor = "Mikhail"

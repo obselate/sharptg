@@ -761,6 +761,7 @@ internal class TelegramService {
     for message in chat.Messages {
       if message.TdId == messageId {
         message.Text = contentText(content)
+        message.LinkPreview = linkPreview(content)
         break
       }
     }
@@ -803,6 +804,9 @@ internal class TelegramService {
     message.TdId = id
     message.SenderId = senderId
     message.Read = outgoing && id <= chat.LastReadOutboxId
+    if root.TryGetProperty("content", out var content) {
+      message.LinkPreview = linkPreview(content)
+    }
     if root.TryGetProperty("reply_to", out var reply) {
       let replyId = jsonInt64(reply, "message_id")
       if replyId != 0 {
@@ -910,6 +914,49 @@ internal class TelegramService {
     return "Unsupported message"
   }
 
+  private func linkPreview(content JsonElement) TelegramLinkPreview? {
+    if jsonString(content, "@type") != "messageText" { return nil }
+    if !content.TryGetProperty("link_preview", out var source) || source.ValueKind != JsonValueKind.Object {
+      return nil
+    }
+    let preview = TelegramLinkPreview()
+    preview.Url = jsonString(source, "url")
+    preview.DisplayUrl = jsonString(source, "display_url")
+    if preview.DisplayUrl == "" { preview.DisplayUrl = preview.Url }
+    preview.SiteName = jsonString(source, "site_name")
+    preview.Title = jsonString(source, "title")
+    if source.TryGetProperty("description", out var description) {
+      preview.Description = formattedText(description)
+    }
+    preview.Author = jsonString(source, "author")
+    preview.ShowAboveText = jsonBool(source, "show_above_text")
+    if source.TryGetProperty("type", out var previewType) && previewType.ValueKind == JsonValueKind.Object {
+      preview.TypeLabel = linkPreviewType(jsonString(previewType, "@type"))
+      preview.HasMedia = true
+    }
+    preview.HasMedia = preview.HasMedia || jsonBool(source, "has_large_media")
+    if preview.Title == "" && preview.Description == "" && preview.SiteName == ""
+      && preview.DisplayUrl == "" && preview.Url == "" {
+        return nil
+      }
+    return preview
+  }
+
+  private func linkPreviewType(kind string) string {
+    if kind == "linkPreviewTypeAlbum" { return "Album" }
+    if kind == "linkPreviewTypeAnimation" { return "GIF" }
+    if kind == "linkPreviewTypeApp" { return "App" }
+    if kind == "linkPreviewTypeArticle" { return "Article" }
+    if kind == "linkPreviewTypeAudio" { return "Audio" }
+    if kind == "linkPreviewTypeDocument" { return "Document" }
+    if kind == "linkPreviewTypePhoto" { return "Photo" }
+    if kind == "linkPreviewTypeSticker" || kind == "linkPreviewTypeStickerSet" { return "Sticker" }
+    if kind == "linkPreviewTypeVideo" || kind == "linkPreviewTypeVideoNote" { return "Video" }
+    if kind == "linkPreviewTypeVoiceNote" { return "Voice" }
+    if kind == "linkPreviewTypeWebApp" { return "Web App" }
+    return "Link"
+  }
+
   private func formattedText(root JsonElement) string -> jsonString(root, "text")
 
   private func mediaText(label string, caption string) string {
@@ -975,7 +1022,7 @@ internal class TelegramService {
     request["system_language_code"] = "en"
     request["device_model"] = "Terminal"
     request["system_version"] = Environment.OSVersion.VersionString
-    request["application_version"] = "0.5.0"
+    request["application_version"] = "0.6.0"
     send(request.ToJsonString())
   }
 
